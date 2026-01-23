@@ -9,13 +9,38 @@ export interface YouTubeVideo {
   channelTitle: string;
 }
 
+export interface PlaylistItem {
+  id: string;
+  title: string;
+  description: string;
+  thumbnail: string;
+  channelTitle: string;
+  itemCount?: number;
+}
+
 export interface YouTubeSearchResult {
   videos: YouTubeVideo[];
+  playlists?: PlaylistItem[];
   nextPageToken?: string;
 }
 
 const YOUTUBE_API_KEY = process.env.NEXT_PUBLIC_YOUTUBE_API_KEY;
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
+
+/**
+ * Validates if a string is a valid YouTube video ID
+ * YouTube video IDs are exactly 11 characters long and contain alphanumeric, hyphen, and underscore
+ */
+export function isValidYouTubeVideoId(videoId: string | undefined | null): boolean {
+  if (!videoId || typeof videoId !== 'string') {
+    return false;
+  }
+
+  const trimmedId = videoId.trim();
+  // YouTube video IDs are exactly 11 characters and contain only alphanumeric, hyphen, and underscore
+  const youtubeIdRegex = /^[a-zA-Z0-9_-]{11}$/;
+  return youtubeIdRegex.test(trimmedId);
+}
 
 export async function searchYouTube(
   query: string,
@@ -23,15 +48,14 @@ export async function searchYouTube(
 ): Promise<YouTubeSearchResult> {
   if (!YOUTUBE_API_KEY) {
     console.error("[v0] YouTube API key not configured");
-    return { videos: [] };
+    return { videos: [], playlists: [] };
   }
 
   try {
     const params = new URLSearchParams({
       part: "snippet",
       q: `${query} official audio`,
-      type: "video",
-      videoCategoryId: "10", // Music category
+      type: "video,playlist",
       maxResults: "20",
       key: YOUTUBE_API_KEY,
     });
@@ -49,58 +73,103 @@ export async function searchYouTube(
     }
 
     const searchData = await searchResponse.json();
-    const videoIds = searchData.items
+    
+    // Separate videos and playlists
+    const videoItems = searchData.items.filter(
+      (item: { id: { kind: string } }) => item.id.kind === "youtube#video"
+    );
+    const playlistItems = searchData.items.filter(
+      (item: { id: { kind: string } }) => item.id.kind === "youtube#playlist"
+    );
+
+    const videoIds = videoItems
       .map((item: { id: { videoId: string } }) => item.id.videoId)
       .join(",");
 
-    // Get video details for duration
-    const detailsResponse = await fetch(
-      `${YOUTUBE_API_BASE}/videos?part=contentDetails,snippet&id=${videoIds}&key=${YOUTUBE_API_KEY}`
-    );
-
-    if (!detailsResponse.ok) {
-      throw new Error(`YouTube details failed: ${detailsResponse.status}`);
-    }
-
-    const detailsData = await detailsResponse.json();
-
-    const videos: YouTubeVideo[] = detailsData.items.map(
+    const playlists: PlaylistItem[] = playlistItems.map(
       (item: {
-        id: string;
-        snippet: { title: string; channelTitle: string; thumbnails: { high: { url: string } } };
-        contentDetails: { duration: string };
-      }) => {
-        const title = item.snippet.title;
-        const channelTitle = item.snippet.channelTitle;
-        
-        // Extract artist from title or use channel name
-        let artist = channelTitle;
-        if (title.includes(" - ")) {
-          const parts = title.split(" - ");
-          artist = parts[0].trim();
-        } else if (title.includes(" | ")) {
-          const parts = title.split(" | ");
-          artist = parts[0].trim();
-        }
-
-        return {
-          id: item.id,
-          title: cleanTitle(title),
-          artist: artist,
-          thumbnail: item.snippet.thumbnails.high?.url || "",
-          duration: parseDuration(item.contentDetails.duration),
-          channelTitle,
+        id: { playlistId: string };
+        snippet: {
+          title: string;
+          description: string;
+          channelTitle: string;
+          thumbnails: { high: { url: string } };
         };
-      }
+      }) => ({
+        id: item.id.playlistId,
+        title: item.snippet.title,
+        description: item.snippet.description,
+        thumbnail: item.snippet.thumbnails.high?.url || "",
+        channelTitle: item.snippet.channelTitle,
+      })
     );
+
+    const videos: YouTubeVideo[] = [];
+    
+    if (videoIds) {
+      // Get video details for duration
+      const detailsResponse = await fetch(
+        `${YOUTUBE_API_BASE}/videos?part=contentDetails,snippet&id=${videoIds}&key=${YOUTUBE_API_KEY}`
+      );
+
+      if (!detailsResponse.ok) {
+        throw new Error(`YouTube details failed: ${detailsResponse.status}`);
+      }
+
+      const detailsData = await detailsResponse.json();
+
+      const processedVideos = detailsData.items.map(
+        (item: {
+          id: string;
+          snippet: {
+            title: string;
+            channelTitle: string;
+            thumbnails: { high: { url: string } };
+          };
+          contentDetails: { duration: string };
+        }) => {
+          // Validate video ID - YouTube IDs must be exactly 11 chars
+          if (!isValidYouTubeVideoId(item.id)) {
+            console.warn("[v0] Skipping video with invalid ID format:", item.id);
+            return null;
+          }
+
+          const title = item.snippet.title;
+          const channelTitle = item.snippet.channelTitle;
+
+          // Extract artist from title or use channel name
+          let artist = channelTitle;
+          if (title.includes(" - ")) {
+            const parts = title.split(" - ");
+            artist = parts[0].trim();
+          } else if (title.includes(" | ")) {
+            const parts = title.split(" | ");
+            artist = parts[0].trim();
+          }
+
+          return {
+            id: item.id,
+            title: cleanTitle(title),
+            artist: artist,
+            thumbnail: item.snippet.thumbnails.high?.url || "",
+            duration: parseDuration(item.contentDetails.duration),
+            channelTitle,
+          };
+        }
+      );
+      
+      // Filter out any null values (invalid videos)
+      videos.push(...processedVideos.filter((v): v is YouTubeVideo => v !== null));
+    }
 
     return {
       videos,
+      playlists,
       nextPageToken: searchData.nextPageToken,
     };
   } catch (error) {
     console.error("[v0] YouTube search error:", error);
-    return { videos: [] };
+    return { videos: [], playlists: [] };
   }
 }
 
@@ -147,6 +216,79 @@ export async function getTrendingMusic(): Promise<YouTubeVideo[]> {
     );
   } catch (error) {
     console.error("[v0] YouTube trending error:", error);
+    return [];
+  }
+}
+
+export async function getPlaylistItems(
+  playlistId: string,
+  maxResults: number = 20
+): Promise<YouTubeVideo[]> {
+  if (!YOUTUBE_API_KEY) {
+    return [];
+  }
+
+  try {
+    const response = await fetch(
+      `${YOUTUBE_API_BASE}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=${maxResults}&key=${YOUTUBE_API_KEY}`
+    );
+
+    if (!response.ok) {
+      throw new Error(`YouTube playlist failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const videoIds = data.items
+      .map((item: { contentDetails: { videoId: string } }) => item.contentDetails.videoId)
+      .join(",");
+
+    if (!videoIds) return [];
+
+    const detailsResponse = await fetch(
+      `${YOUTUBE_API_BASE}/videos?part=contentDetails,snippet&id=${videoIds}&key=${YOUTUBE_API_KEY}`
+    );
+
+    if (!detailsResponse.ok) {
+      throw new Error(`YouTube video details failed: ${detailsResponse.status}`);
+    }
+
+    const detailsData = await detailsResponse.json();
+
+    return detailsData.items
+      .map(
+        (item: {
+          id: string;
+          snippet: { title: string; channelTitle: string; thumbnails: { high: { url: string } } };
+          contentDetails: { duration: string };
+        }) => {
+          // Validate video ID - YouTube IDs must be exactly 11 chars
+          if (!isValidYouTubeVideoId(item.id)) {
+            console.warn("[v0] Skipping playlist item with invalid ID format:", item.id);
+            return null;
+          }
+
+          const title = item.snippet.title;
+          const channelTitle = item.snippet.channelTitle;
+
+          let artist = channelTitle;
+          if (title.includes(" - ")) {
+            const parts = title.split(" - ");
+            artist = parts[0].trim();
+          }
+
+          return {
+            id: item.id,
+            title: cleanTitle(title),
+            artist,
+            thumbnail: item.snippet.thumbnails.high?.url || "",
+            duration: parseDuration(item.contentDetails.duration),
+            channelTitle,
+          };
+        }
+      )
+      .filter((v): v is YouTubeVideo => v !== null);
+  } catch (error) {
+    console.error("[v0] YouTube playlist error:", error);
     return [];
   }
 }

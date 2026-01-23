@@ -1,9 +1,10 @@
 "use client";
 
 import type { YouTubeVideo } from "./youtube";
+import { isValidYouTubeVideoId } from "./youtube";
 
 const DB_NAME = "pulse-music-db";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 interface StoredTrack extends YouTubeVideo {
   savedAt: number;
@@ -49,6 +50,27 @@ async function getDB(): Promise<IDBDatabase> {
       // Store for liked tracks
       if (!database.objectStoreNames.contains("likedTracks")) {
         database.createObjectStore("likedTracks", { keyPath: "id" });
+      }
+
+      // Store for offline downloads
+      if (!database.objectStoreNames.contains("downloads")) {
+        const downloadsStore = database.createObjectStore("downloads", {
+          keyPath: "id",
+        });
+        downloadsStore.createIndex("downloadedAt", "downloadedAt", {
+          unique: false,
+        });
+        downloadsStore.createIndex("downloadStatus", "downloadStatus", {
+          unique: false,
+        });
+      }
+
+      // Store for albums
+      if (!database.objectStoreNames.contains("albums")) {
+        const albumsStore = database.createObjectStore("albums", {
+          keyPath: "id",
+        });
+        albumsStore.createIndex("savedAt", "savedAt", { unique: false });
       }
     };
   });
@@ -153,7 +175,13 @@ export async function getRecentlyPlayed(): Promise<YouTubeVideo[]> {
     request.onsuccess = (event) => {
       const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
       if (cursor && tracks.length < 20) {
-        tracks.push(cursor.value);
+        const track = cursor.value;
+        // Filter out tracks with invalid video IDs
+        if (isValidYouTubeVideoId(track.id)) {
+          tracks.push(track);
+        } else {
+          console.warn("[v0] Skipping recently played track with invalid ID:", track.id);
+        }
         cursor.continue();
       } else {
         resolve(tracks);
@@ -186,7 +214,17 @@ export async function getLikedTracks(): Promise<YouTubeVideo[]> {
 
   return new Promise((resolve, reject) => {
     const request = store.getAll();
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      // Filter out any tracks with invalid video IDs
+      const validTracks = request.result.filter((track) => {
+        if (!isValidYouTubeVideoId(track.id)) {
+          console.warn("[v0] Skipping liked track with invalid ID:", track.id);
+          return false;
+        }
+        return true;
+      });
+      resolve(validTracks);
+    };
     request.onerror = () => reject(request.error);
   });
 }
