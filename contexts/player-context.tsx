@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import type { YouTubeVideo } from "@/lib/youtube";
-import { durationToSeconds } from "@/lib/youtube";
+import { durationToSeconds, isValidYouTubeVideoId } from "@/lib/youtube";
 import { addToRecentlyPlayed } from "@/lib/offline-storage";
 
 declare global {
@@ -106,6 +106,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const playerRef = useRef<YTPlayer | null>(null);
   const playerContainerRef = useRef<HTMLDivElement | null>(null);
   const timeUpdateInterval = useRef<NodeJS.Timeout | null>(null);
+  const pageHiddenRef = useRef(false);
+  const resumeTimeRef = useRef<number>(0);
+  const unplayableVideosRef = useRef<Set<string>>(new Set());
 
   // Load YouTube IFrame API
   useEffect(() => {
@@ -131,6 +134,105 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     };
   }, []);
+
+  // Load persistent playback state on mount
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const savedState = localStorage.getItem("pulse-playback-state");
+      if (savedState) {
+        const state = JSON.parse(savedState);
+        // Validate both the song exists and has a valid YouTube video ID
+        if (state.song && state.song.id && isValidYouTubeVideoId(state.song.id)) {
+          // Validate the saved song has all required fields
+          setCurrentSong(state.song);
+          setCurrentTime(Math.max(0, state.time || 0));
+          resumeTimeRef.current = Math.max(0, state.time || 0);
+          // Don't auto-play, let user control it
+          setIsPlaying(false);
+        } else {
+          // Saved state is invalid, clear it
+          console.warn("[v0] Saved playback state has invalid or corrupted song ID:", state.song?.id, "clearing");
+          localStorage.removeItem("pulse-playback-state");
+        }
+      }
+    } catch (error) {
+      console.error("[v0] Failed to load playback state:", error);
+      // Clear invalid saved state
+      try {
+        localStorage.removeItem("pulse-playback-state");
+      } catch (e) {
+        // Silently ignore
+      }
+    }
+  }, []);
+
+  // Handle page visibility changes and auto-save state
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        pageHiddenRef.current = true;
+        if (playerRef.current && currentSong && currentSong.id) {
+          try {
+            resumeTimeRef.current = playerRef.current.getCurrentTime();
+            // Save state to localStorage when page is hidden
+            localStorage.setItem(
+              "pulse-playback-state",
+              JSON.stringify({
+                song: currentSong,
+                time: resumeTimeRef.current,
+                isPlaying: isPlaying,
+              })
+            );
+          } catch (error) {
+            console.error("[v0] Failed to save playback state on visibility change:", error);
+          }
+        }
+      } else {
+        pageHiddenRef.current = false;
+        // Resume playback when page becomes visible
+        if (currentSong && resumeTimeRef.current > 0) {
+          setTimeout(() => {
+            if (playerRef.current) {
+              playerRef.current.seekTo(resumeTimeRef.current, true);
+              if (isPlaying) {
+                playerRef.current.playVideo();
+              }
+            }
+          }, 500);
+        }
+      }
+    };
+
+    // Also save state periodically when playing
+    const autoSaveInterval = setInterval(() => {
+      if (currentSong && currentSong.id && isPlaying && playerRef.current && !document.hidden) {
+        try {
+          const currentTime = playerRef.current.getCurrentTime();
+          localStorage.setItem(
+            "pulse-playback-state",
+            JSON.stringify({
+              song: currentSong,
+              time: Math.max(0, currentTime),
+              isPlaying: isPlaying,
+            })
+          );
+        } catch (error) {
+          // Silently ignore save errors
+        }
+      }
+    }, 5000); // Save every 5 seconds
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearInterval(autoSaveInterval);
+    };
+  }, [currentSong, isPlaying]);
 
   // Create hidden player container
   useEffect(() => {
@@ -205,9 +307,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             }
           },
           onError: (event) => {
-            console.error("[v0] YouTube player error:", event.data);
+            const errorCode = event.data;
+            const videoId = currentSong?.id;
+            
+            // Add to blocklist of unplayable videos
+            if (videoId) {
+              unplayableVideosRef.current.add(videoId);
+            }
+            
+            // Log at debug level for error 2 (known YouTube restrictions)
+            if (errorCode === 2) {
+              console.debug(
+                `[v0] Video unavailable: ${videoId} (${currentSong?.title}) - skipping`
+              );
+            } else {
+              console.warn(
+                `[v0] YouTube player error ${errorCode}: ${currentSong?.id} (${currentSong?.title})`
+              );
+            }
+            
             setIsLoading(false);
-            // Skip to next track on error
+            
+            // Skip to next track for any error
+            console.debug("[v0] Skipping to next track");
             handleTrackEnd();
           },
         },
@@ -245,21 +367,32 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setQueueIndex((currentIndex) => {
         if (currentQueue.length === 0) return currentIndex;
 
-        const nextIndex = currentIndex + 1;
-        if (nextIndex < currentQueue.length) {
+        let nextIndex = currentIndex + 1;
+        // Skip invalid tracks
+        while (nextIndex < currentQueue.length) {
           const nextSong = currentQueue[nextIndex];
-          setTimeout(() => {
-            setCurrentSong(nextSong);
-            setCurrentTime(0);
-            setDuration(durationToSeconds(nextSong.duration));
-            setIsLoading(true);
-            if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-              playerRef.current.loadVideoById(nextSong.id);
-            }
-            addToRecentlyPlayed(nextSong);
-          }, 0);
-          return nextIndex;
+          if (nextSong && nextSong.id && typeof nextSong.id === 'string' && isValidYouTubeVideoId(nextSong.id)) {
+            // Found a valid track, play it
+            setTimeout(() => {
+              setCurrentSong(nextSong);
+              setCurrentTime(0);
+              setDuration(durationToSeconds(nextSong.duration));
+              setIsLoading(true);
+              if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
+                try {
+                  playerRef.current.loadVideoById(nextSong.id.trim());
+                } catch (error) {
+                  console.error("[v0] Failed to load next track:", error);
+                }
+              }
+              addToRecentlyPlayed(nextSong);
+            }, 0);
+            return nextIndex;
+          }
+          console.warn("[v0] Skipping invalid track in queue:", nextSong);
+          nextIndex++;
         }
+        // No more valid tracks
         return currentIndex;
       });
       return currentQueue;
@@ -268,6 +401,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const playSong = useCallback(
     (song: Song) => {
+      // Validate song object and ID format
+      if (!song || !song.id || typeof song.id !== 'string') {
+        console.error("[v0] Invalid song object or missing video ID:", song);
+        setIsLoading(false);
+        return;
+      }
+
+      // Validate YouTube video ID format (must be exactly 11 chars: [a-zA-Z0-9_-])
+      if (!isValidYouTubeVideoId(song.id)) {
+        console.error("[v0] Invalid YouTube video ID format. Expected 11 alphanumeric/hyphen/underscore characters, got:", song.id);
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if video is in blocklist of unplayable videos
+      if (unplayableVideosRef.current.has(song.id)) {
+        console.debug("[v0] Video in blocklist, skipping:", song.id);
+        setIsLoading(false);
+        handleTrackEnd();
+        return;
+      }
+
       setCurrentSong(song);
       setQueue([song]);
       setQueueIndex(0);
@@ -275,11 +430,39 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setDuration(durationToSeconds(song.duration));
       setIsLoading(true);
 
+      // Save state to localStorage
+      try {
+        localStorage.setItem(
+          "pulse-playback-state",
+          JSON.stringify({
+            song: song,
+            time: 0,
+            isPlaying: true,
+          })
+        );
+      } catch (error) {
+        // Silently ignore save errors
+      }
+
       if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-        playerRef.current.loadVideoById(song.id);
+        try {
+          playerRef.current.loadVideoById(song.id.trim());
+        } catch (error) {
+          console.error("[v0] Failed to load video:", error, "Video ID:", song.id);
+          setIsLoading(false);
+        }
       } else {
         console.warn("[v0] Player not ready yet or loadVideoById not available");
-        // Player will load the video once it's ready via the onReady event or retry
+        // Retry after a delay
+        setTimeout(() => {
+          if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
+            try {
+              playerRef.current.loadVideoById(song.id.trim());
+            } catch (error) {
+              console.error("[v0] Retry failed to load video:", error);
+            }
+          }
+        }, 500);
       }
 
       addToRecentlyPlayed(song);
@@ -294,15 +477,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setQueue(songs);
       setQueueIndex(startIndex);
       const song = songs[startIndex];
+      
+      // Validate song object and ID
+      if (!song || !song.id || typeof song.id !== 'string' || song.id.trim().length === 0) {
+        console.error("[v0] Invalid song in queue:", song);
+        setIsLoading(false);
+        return;
+      }
+
       setCurrentSong(song);
       setCurrentTime(0);
       setDuration(durationToSeconds(song.duration));
       setIsLoading(true);
 
       if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-        playerRef.current.loadVideoById(song.id);
+        try {
+          playerRef.current.loadVideoById(song.id.trim());
+        } catch (error) {
+          console.error("[v0] Failed to load video from queue:", error);
+          setIsLoading(false);
+        }
       } else {
         console.warn("[v0] Player not ready yet or loadVideoById not available");
+        // Retry after a delay
+        setTimeout(() => {
+          if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
+            try {
+              playerRef.current.loadVideoById(song.id.trim());
+            } catch (error) {
+              console.error("[v0] Retry failed to load video from queue:", error);
+            }
+          }
+        }, 500);
       }
 
       addToRecentlyPlayed(song);
@@ -323,21 +529,32 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const nextTrack = useCallback(() => {
     if (queue.length === 0) return;
 
-    const nextIndex = queueIndex + 1;
-    if (nextIndex < queue.length) {
-      setQueueIndex(nextIndex);
-      const song = queue[nextIndex];
-      setCurrentSong(song);
-      setCurrentTime(0);
-      setDuration(durationToSeconds(song.duration));
-      setIsLoading(true);
-
-      if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-        playerRef.current.loadVideoById(song.id);
-      }
-
-      addToRecentlyPlayed(song);
+    let nextIndex = queueIndex + 1;
+    if (nextIndex >= queue.length) {
+      // Loop to beginning
+      nextIndex = 0;
     }
+
+    const song = queue[nextIndex];
+    
+    // Validate video ID
+    if (!song || !isValidYouTubeVideoId(song.id)) {
+      console.error("[v0] Invalid video ID in next track, skipping:", song?.id);
+      return;
+    }
+
+    setQueueIndex(nextIndex);
+    setCurrentSong(song);
+    setCurrentTime(0);
+    setDuration(durationToSeconds(song.duration));
+    setIsLoading(true);
+
+    if (playerRef.current && typeof playerRef.current.loadVideoById === "function") {
+      playerRef.current.loadVideoById(song.id);
+      playerRef.current.playVideo();
+    }
+
+    addToRecentlyPlayed(song);
   }, [queue, queueIndex]);
 
   const previousTrack = useCallback(() => {
@@ -351,8 +568,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const prevIndex = queueIndex - 1;
     if (prevIndex >= 0) {
-      setQueueIndex(prevIndex);
       const song = queue[prevIndex];
+      
+      // Validate video ID
+      if (!song || !isValidYouTubeVideoId(song.id)) {
+        console.error("[v0] Invalid video ID in previous track, skipping:", song?.id);
+        return;
+      }
+
+      setQueueIndex(prevIndex);
       setCurrentSong(song);
       setCurrentTime(0);
       setDuration(durationToSeconds(song.duration));

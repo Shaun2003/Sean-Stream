@@ -17,6 +17,7 @@ import {
   Loader2,
   Share2,
   MoreHorizontal,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -24,9 +25,18 @@ import { useState, useEffect } from "react";
 import { isTrackLiked, likeTrack, unlikeTrack } from "@/lib/offline-storage";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { shareTrack, openInYouTube } from "@/lib/share-utils";
+import { useToast } from "@/hooks/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function PlayerPage() {
   const router = useRouter();
+  const { toast } = useToast();
   const {
     currentSong,
     isPlaying,
@@ -73,6 +83,23 @@ export default function PlayerPage() {
     if (!isShuffled) {
       shuffleQueue();
     }
+  };
+
+  const handleShare = async () => {
+    const result = await shareTrack(currentSong);
+    if (result) {
+      toast({
+        title: "Shared",
+        description: result,
+      });
+    }
+  };
+
+  const handleDownload = () => {
+    toast({
+      title: "Download",
+      description: "Starting download...",
+    });
   };
 
   const toggleMute = () => {
@@ -154,21 +181,21 @@ export default function PlayerPage() {
         </div>
 
         {/* Song Info & Controls */}
-        <div className="px-6 md:px-16 pb-8 md:pb-12 space-y-6 max-w-2xl mx-auto w-full">
+        <div className="px-6 md:px-16 pb-8 md:pb-12 space-y-6 max-w-2xl mx-auto w-full flex flex-col">
           {/* Song Info */}
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1 min-w-0">
-              <h1 className="text-xl md:text-2xl font-bold text-foreground line-clamp-1">
+              <h1 className="text-xl md:text-2xl font-bold text-foreground line-clamp-2">
                 {currentSong.title}
               </h1>
-              <p className="text-base md:text-lg text-muted-foreground line-clamp-1">
+              <p className="text-base md:text-lg text-muted-foreground line-clamp-1 mt-1">
                 {currentSong.artist}
               </p>
             </div>
             <Button
               variant="ghost"
               size="icon"
-              className="w-10 h-10 flex-shrink-0"
+              className="w-10 h-10 flex-shrink-0 mt-1"
               onClick={handleLike}
             >
               <Heart
@@ -268,7 +295,13 @@ export default function PlayerPage() {
 
           {/* Volume & Extra Controls */}
           <div className="flex items-center justify-between">
-            <Button variant="ghost" size="icon" className="w-10 h-10">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-10 h-10"
+              onClick={handleShare}
+              title="Share"
+            >
               <Share2 className="w-5 h-5" />
             </Button>
 
@@ -294,9 +327,24 @@ export default function PlayerPage() {
               />
             </div>
 
-            <Button variant="ghost" size="icon" className="w-10 h-10">
-              <MoreHorizontal className="w-5 h-5" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="w-10 h-10">
+                  <MoreHorizontal className="w-5 h-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => openInYouTube(currentSong.id)}>
+                  Open in YouTube
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleShare}>
+                  Share Track
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDownload}>
+                  Save for Offline
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>

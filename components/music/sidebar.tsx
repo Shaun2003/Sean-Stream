@@ -6,6 +6,7 @@ import { Home, Search, Library, Plus, Heart, Music } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { memo } from "react";
 
 interface SidebarProps {
   className?: string;
@@ -16,7 +17,7 @@ const mainNavItems = [
   { href: "/search", icon: Search, label: "Search" },
 ];
 
-export function Sidebar({ className }: SidebarProps) {
+function SidebarComponent({ className }: SidebarProps) {
   const pathname = usePathname();
 
   return (
@@ -113,3 +114,5 @@ export function Sidebar({ className }: SidebarProps) {
     </div>
   );
 }
+
+export const Sidebar = memo(SidebarComponent);

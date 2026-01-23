@@ -4,9 +4,11 @@ import React from "react"
 import { Suspense } from "react";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { getLikedTracks, getRecentlyPlayed, getSavedTracks } from "@/lib/offline-storage";
+import { getLikedTracks, getRecentlyPlayed } from "@/lib/offline-storage";
+import { getDownloadedTracks, type StoredDownload, downloadTrack } from "@/lib/offline-download";
 import type { YouTubeVideo } from "@/lib/youtube";
 import { usePlayer, type Song } from "@/contexts/player-context";
+import { useToast } from "@/hooks/use-toast";
 import { TrackRow } from "@/components/music/track-row";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -20,22 +22,29 @@ export default function LibraryPage() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [likedTracks, setLikedTracks] = useState<YouTubeVideo[]>([]);
   const [recentTracks, setRecentTracks] = useState<YouTubeVideo[]>([]);
-  const [savedTracks, setSavedTracks] = useState<YouTubeVideo[]>([]);
+  const [downloadedTracks, setDownloadedTracks] = useState<StoredDownload[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+  const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
   const { playQueue, shuffleQueue } = usePlayer();
+  const { toast } = useToast();
 
   useEffect(() => {
     async function loadLibrary() {
       setIsLoading(true);
       try {
-        const [liked, recent, saved] = await Promise.all([
+        const [liked, recent, downloaded] = await Promise.all([
           getLikedTracks(),
           getRecentlyPlayed(),
-          getSavedTracks(),
+          getDownloadedTracks(),
         ]);
         setLikedTracks(liked);
         setRecentTracks(recent);
-        setSavedTracks(saved);
+        setDownloadedTracks(downloaded);
+
+        // Initialize downloaded IDs set
+        const downloadedIdSet = new Set(downloaded.map((d) => d.id));
+        setDownloadedIds(downloadedIdSet);
       } catch (error) {
         console.error("[v0] Error loading library:", error);
       } finally {
@@ -55,6 +64,50 @@ export default function LibraryPage() {
     if (tracks.length > 0) {
       playQueue(tracks as Song[]);
       shuffleQueue();
+    }
+  };
+
+  const handleDownloadTrack = async (track: YouTubeVideo) => {
+    const isAlreadyDownloaded = downloadedIds.has(track.id);
+
+    if (isAlreadyDownloaded) {
+      toast({
+        title: "Already Downloaded",
+        description: "This track is already in your library.",
+      });
+      return;
+    }
+
+    setDownloadingIds((prev) => new Set(prev).add(track.id));
+
+    try {
+      await downloadTrack(track, (progress) => {
+        console.log(`[v0] Download progress for ${track.id}: ${progress}%`);
+      });
+
+      setDownloadedIds((prev) => new Set(prev).add(track.id));
+      
+      // Reload downloaded tracks
+      const updated = await getDownloadedTracks();
+      setDownloadedTracks(updated);
+
+      toast({
+        title: "Success",
+        description: `"${track.title}" downloaded successfully!`,
+      });
+    } catch (error) {
+      console.error("[v0] Download error:", error);
+      toast({
+        title: "Download Failed",
+        description: `Failed to download "${track.title}". Try again later.`,
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingIds((prev) => {
+        const updated = new Set(prev);
+        updated.delete(track.id);
+        return updated;
+      });
     }
   };
 
@@ -80,11 +133,11 @@ export default function LibraryPage() {
               Recently Played
             </TabsTrigger>
             <TabsTrigger
-              value="saved"
+              value="downloads"
               className="data-[state=active]:bg-card gap-2"
             >
               <Download className="w-4 h-4" />
-              Saved
+              Downloads
             </TabsTrigger>
           </TabsList>
 
@@ -132,7 +185,14 @@ export default function LibraryPage() {
                 {/* Track List */}
                 <div className="space-y-1">
                   {likedTracks.map((track, index) => (
-                    <TrackRow key={track.id} track={track} index={index + 1} />
+                    <TrackRow 
+                      key={track.id} 
+                      track={track} 
+                      index={index + 1}
+                      onDownloadClick={() => handleDownloadTrack(track)}
+                      isDownloaded={downloadedIds.has(track.id)}
+                      isDownloading={downloadingIds.has(track.id)}
+                    />
                   ))}
                 </div>
               </div>
@@ -189,7 +249,14 @@ export default function LibraryPage() {
                 {/* Track List */}
                 <div className="space-y-1">
                   {recentTracks.map((track, index) => (
-                    <TrackRow key={track.id} track={track} index={index + 1} />
+                    <TrackRow 
+                      key={track.id} 
+                      track={track} 
+                      index={index + 1}
+                      onDownloadClick={() => handleDownloadTrack(track)}
+                      isDownloaded={downloadedIds.has(track.id)}
+                      isDownloading={downloadingIds.has(track.id)}
+                    />
                   ))}
                 </div>
               </div>
@@ -202,42 +269,43 @@ export default function LibraryPage() {
             )}
           </TabsContent>
 
-          {/* Saved Tab */}
-          <TabsContent value="saved" className="mt-6">
-            {savedTracks.length > 0 ? (
+          {/* Downloads Tab */}
+          <TabsContent value="downloads" className="mt-6">
+            {downloadedTracks.length > 0 ? (
               <div className="space-y-4">
-                {/* Header */}
-                <div className="flex items-end gap-6 p-6 rounded-lg bg-gradient-to-br from-orange-700/50 to-amber-600/30">
-                  <div className="w-32 h-32 md:w-48 md:h-48 rounded-lg bg-gradient-to-br from-orange-600 to-amber-400 flex items-center justify-center shadow-xl">
-                    <Download className="w-16 h-16 md:w-20 md:h-20 text-foreground" />
+                {/* Header with gradient */}
+                <div className="flex items-end gap-6 p-6 rounded-lg bg-gradient-to-br from-green-700/50 to-emerald-600/30">
+                  <div className="w-32 h-32 md:w-48 md:h-48 rounded-lg bg-gradient-to-br from-green-600 to-emerald-400 flex items-center justify-center shadow-xl">
+                    <Download className="w-16 h-16 md:w-20 md:h-20 text-foreground fill-current" />
                   </div>
                   <div className="flex-1">
-                    <p className="text-xs font-medium text-foreground/80 uppercase tracking-wider">
-                      Playlist
+                    <p className="text-sm text-muted-foreground mb-2">
+                      Offline Downloads
                     </p>
-                    <h2 className="text-3xl md:text-5xl font-bold text-foreground mt-1">
-                      Saved Songs
+                    <h2 className="text-4xl md:text-5xl font-bold text-foreground mb-4">
+                      My Downloads
                     </h2>
-                    <p className="text-sm text-foreground/70 mt-2">
-                      {savedTracks.length} songs
+                    <p className="text-sm text-muted-foreground">
+                      {downloadedTracks.length} songs downloaded
                     </p>
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-4 px-2">
+                {/* Action Buttons */}
+                <div className="flex gap-2 md:gap-4">
                   <Button
+                    className="gap-2"
                     size="lg"
-                    className="rounded-full w-14 h-14 bg-primary hover:bg-primary/90 hover:scale-105 transition-transform"
-                    onClick={() => handlePlayAll(savedTracks)}
+                    onClick={() => handlePlayAll(downloadedTracks)}
                   >
-                    <Play className="w-6 h-6 fill-current ml-1" />
+                    <Play className="w-5 h-5" />
+                    Play All
                   </Button>
                   <Button
-                    variant="ghost"
-                    size="icon"
+                    variant="outline"
                     className="w-10 h-10"
-                    onClick={() => handleShufflePlay(savedTracks)}
+                    size="icon"
+                    onClick={() => handleShufflePlay(downloadedTracks)}
                   >
                     <Shuffle className="w-6 h-6" />
                   </Button>
@@ -245,16 +313,22 @@ export default function LibraryPage() {
 
                 {/* Track List */}
                 <div className="space-y-1">
-                  {savedTracks.map((track, index) => (
-                    <TrackRow key={track.id} track={track} index={index + 1} />
+                  {downloadedTracks.map((track, index) => (
+                    <TrackRow 
+                      key={track.id} 
+                      track={track as YouTubeVideo} 
+                      index={index + 1}
+                      isDownloaded={true}
+                      onDownloadClick={() => handleDownloadTrack(track as YouTubeVideo)}
+                    />
                   ))}
                 </div>
               </div>
             ) : (
               <EmptyState
                 icon={Download}
-                title="Save songs for offline"
-                description="Download songs to listen without internet"
+                title="No downloads yet"
+                description="Download songs from search to listen offline"
               />
             )}
           </TabsContent>

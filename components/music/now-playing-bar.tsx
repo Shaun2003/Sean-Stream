@@ -14,20 +14,30 @@ import {
   ListMusic,
   Maximize2,
   Loader2,
+  Share2,
+  MoreVertical,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
-import { useState, useEffect } from "react";
+import { useState, useEffect, memo } from "react";
 import Link from "next/link";
 import { isTrackLiked, likeTrack, unlikeTrack } from "@/lib/offline-storage";
+import { shareTrack, openInYouTube } from "@/lib/share-utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 
 interface NowPlayingBarProps {
   className?: string;
   mobile?: boolean;
 }
 
-export function NowPlayingBar({ className, mobile }: NowPlayingBarProps) {
+function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
   const {
     currentSong,
     isPlaying,
@@ -42,6 +52,8 @@ export function NowPlayingBar({ className, mobile }: NowPlayingBarProps) {
     setVolume,
     shuffleQueue,
   } = usePlayer();
+
+  const { toast } = useToast();
 
   const [isLiked, setIsLiked] = useState(false);
   const [isShuffled, setIsShuffled] = useState(false);
@@ -71,6 +83,24 @@ export function NowPlayingBar({ className, mobile }: NowPlayingBarProps) {
     if (!isShuffled) {
       shuffleQueue();
     }
+  };
+
+  const handleShare = async () => {
+    const result = await shareTrack(currentSong);
+    if (result) {
+      toast({
+        title: "Shared",
+        description: result,
+      });
+    }
+  };
+
+  const handleDownload = () => {
+    // Placeholder - will be implemented with offline storage
+    toast({
+      title: "Download",
+      description: "Starting download...",
+    });
   };
 
   const formatTime = (seconds: number) => {
@@ -323,6 +353,16 @@ export function NowPlayingBar({ className, mobile }: NowPlayingBarProps) {
           variant="ghost"
           size="icon"
           className="w-8 h-8"
+          onClick={handleShare}
+          title="Share"
+        >
+          <Share2 className="w-4 h-4" />
+        </Button>
+
+        <Button
+          variant="ghost"
+          size="icon"
+          className="w-8 h-8"
           onClick={() => setShowQueue(!showQueue)}
         >
           <ListMusic
@@ -357,7 +397,29 @@ export function NowPlayingBar({ className, mobile }: NowPlayingBarProps) {
             <Maximize2 className="w-4 h-4" />
           </Button>
         </Link>
+
+        {/* More menu */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="w-8 h-8">
+              <MoreVertical className="w-4 h-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => openInYouTube(currentSong.id)}>
+              Open in YouTube
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleShare}>
+              Share Track
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleDownload}>
+              Save for Offline
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );
 }
+
+export const NowPlayingBar = memo(NowPlayingBarComponent);
