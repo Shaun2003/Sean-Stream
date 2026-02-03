@@ -119,6 +119,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const reconnectAttemptsRef = useRef<number>(0);
   const maxReconnectAttempts = 3;
   const maxElapsedTimeAllowed = 24 * 60 * 60; // 24 hours in seconds
+  const backgroundPlaybackCheckInterval = useRef<NodeJS.Timeout | null>(null);
+  const isPlayingInBackgroundRef = useRef(false);
 
   // Load YouTube IFrame API
   useEffect(() => {
@@ -187,9 +189,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const handleVisibilityChange = async () => {
       if (document.hidden) {
-        // Page is being hidden - ALWAYS SAVE STATE BUT DON'T PAUSE
+        // Page is being hidden - ALWAYS SAVE STATE AND KEEP PLAYING
         pageHiddenRef.current = true;
         pageHiddenAtRef.current = Date.now();
+        isPlayingInBackgroundRef.current = isPlaying;
         
         if (playerRef.current && currentSong && currentSong.id) {
           try {
@@ -202,7 +205,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             resumeTimeRef.current = currentPlaybackTime;
             reconnectAttemptsRef.current = 0;
             
-            console.log(`[v0] Page hidden - saving playback state at ${currentPlaybackTime.toFixed(2)}s (isPlaying: ${isPlaying})`);
+            console.log(`[v0] Page HIDDEN - saving playback state at ${currentPlaybackTime.toFixed(2)}s (isPlaying: ${isPlaying})`);
             
             // Save state with timestamp to calculate elapsed time on resume
             // IMPORTANT: Save the ACTUAL playing state - if song was playing, keep it playing in background
@@ -215,6 +218,50 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 hiddenAt: pageHiddenAtRef.current,
               })
             );
+
+            // If playing, try to keep the player active in the background
+            if (isPlaying && playerRef.current && typeof playerRef.current.playVideo === "function") {
+              try {
+                playerRef.current.playVideo();
+                console.log(`[v0] Ensured playback continues in background`);
+              } catch (error) {
+                console.warn("[v0] Could not ensure background playback:", error);
+              }
+            }
+
+            // Start background playback recovery mechanism
+            if (backgroundPlaybackCheckInterval.current) {
+              clearInterval(backgroundPlaybackCheckInterval.current);
+            }
+            
+            backgroundPlaybackCheckInterval.current = setInterval(() => {
+              if (!document.hidden) {
+                // Page became visible again, stop checking
+                if (backgroundPlaybackCheckInterval.current) {
+                  clearInterval(backgroundPlaybackCheckInterval.current);
+                  backgroundPlaybackCheckInterval.current = null;
+                }
+                return;
+              }
+
+              // While in background, periodically ensure playback continues
+              if (playerRef.current && isPlayingInBackgroundRef.current && typeof playerRef.current.getPlayerState === "function") {
+                try {
+                  const playerState = playerRef.current.getPlayerState?.();
+                  console.debug(`[v0] Background playback check - Player state: ${playerState}, Should be playing: ${isPlayingInBackgroundRef.current}`);
+                  
+                  // If player stopped, try to resume
+                  if (playerState !== window.YT.PlayerState.PLAYING && playerState !== window.YT.PlayerState.BUFFERING) {
+                    if (typeof playerRef.current.playVideo === "function") {
+                      console.log(`[v0] Resuming background playback (was state ${playerState})`);
+                      playerRef.current.playVideo();
+                    }
+                  }
+                } catch (error) {
+                  console.warn("[v0] Background playback recovery error:", error);
+                }
+              }
+            }, 2000); // Check every 2 seconds in background
           } catch (error) {
             console.error("[v0] Failed to save playback state on visibility change:", error);
           }
@@ -222,6 +269,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       } else {
         // Page is becoming visible - resume playback if it was playing
         pageHiddenRef.current = false;
+        
+        // Stop background playback checking
+        if (backgroundPlaybackCheckInterval.current) {
+          clearInterval(backgroundPlaybackCheckInterval.current);
+          backgroundPlaybackCheckInterval.current = null;
+        }
+
         const currentTimestamp = Date.now();
         const elapsedTime = (currentTimestamp - pageHiddenAtRef.current) / 1000; // Convert to seconds
         
@@ -234,7 +288,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
         
-        if (currentSong && resumeTimeRef.current >= 0 && playerRef.current && isPlaying) {
+        if (currentSong && resumeTimeRef.current >= 0 && playerRef.current && isPlayingInBackgroundRef.current) {
           try {
             // Calculate new position based on elapsed time
             const newTime = resumeTimeRef.current + elapsedTime;
@@ -242,7 +296,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             const clampedTime = Math.min(Math.max(0, newTime), maxTime);
 
             console.log(
-              `[v0] Page visible again - resuming playback: was at ${resumeTimeRef.current.toFixed(2)}s, elapsed ${elapsedTime.toFixed(2)}s, resuming at ${clampedTime.toFixed(2)}s`
+              `[v0] PAGE VISIBLE AGAIN - resuming playback: was at ${resumeTimeRef.current.toFixed(2)}s, elapsed ${elapsedTime.toFixed(2)}s, resuming at ${clampedTime.toFixed(2)}s`
             );
 
             // Attempt to resume with retry logic
@@ -255,12 +309,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                   currentTimeRef.current = clampedTime;
                   
                   // Only play if it was playing before
-                  if (isPlaying) {
+                  if (isPlayingInBackgroundRef.current) {
                     // Small delay to ensure seek completes
                     setTimeout(() => {
                       if (playerRef.current && typeof playerRef.current.playVideo === "function") {
                         playerRef.current.playVideo();
-                        console.log("[v0] Resumed playback after page visibility change");
+                        console.log("[v0] Resumed playback after page became visible");
                       }
                     }, 100);
                   }
@@ -397,6 +451,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleWakeLockVisibility);
       clearInterval(autoSaveInterval);
+      if (backgroundPlaybackCheckInterval.current) {
+        clearInterval(backgroundPlaybackCheckInterval.current);
+        backgroundPlaybackCheckInterval.current = null;
+      }
       releaseWakeLock();
     };
   }, [currentSong, isPlaying, duration]);
