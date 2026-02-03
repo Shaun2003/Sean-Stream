@@ -11,7 +11,7 @@ import {
 } from "react";
 import type { YouTubeVideo } from "@/lib/youtube";
 import { durationToSeconds, isValidYouTubeVideoId } from "@/lib/youtube";
-import { addToRecentlyPlayed } from "@/lib/offline-storage";
+import { addToRecentlyPlayed, isTrackLiked, likeTrack, unlikeTrack } from "@/lib/offline-storage";
 import { supabase } from "@/lib/supabase/client";
 import { syncPlaybackHistory } from "@/lib/backend-sync";
 
@@ -185,7 +185,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     const handleVisibilityChange = async () => {
       if (document.hidden) {
-        // Page is being hidden
+        // Page is being hidden - ALWAYS SAVE STATE BUT DON'T PAUSE
         pageHiddenRef.current = true;
         pageHiddenAtRef.current = Date.now();
         
@@ -200,15 +200,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             resumeTimeRef.current = currentPlaybackTime;
             reconnectAttemptsRef.current = 0;
             
-            console.log(`[v0] Page hidden - saving playback at ${currentPlaybackTime.toFixed(2)}s`);
+            console.log(`[v0] Page hidden - saving playback state at ${currentPlaybackTime.toFixed(2)}s (isPlaying: ${isPlaying})`);
             
             // Save state with timestamp to calculate elapsed time on resume
+            // IMPORTANT: Save the ACTUAL playing state - if song was playing, keep it playing in background
             localStorage.setItem(
               "pulse-playback-state",
               JSON.stringify({
                 song: currentSong,
                 time: currentPlaybackTime,
-                isPlaying: isPlaying,
+                isPlaying: isPlaying, // Keep actual state - don't force pause
                 hiddenAt: pageHiddenAtRef.current,
               })
             );
@@ -217,7 +218,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           }
         }
       } else {
-        // Page is becoming visible - resume playback
+        // Page is becoming visible - resume playback if it was playing
         pageHiddenRef.current = false;
         const currentTimestamp = Date.now();
         const elapsedTime = (currentTimestamp - pageHiddenAtRef.current) / 1000; // Convert to seconds
@@ -231,7 +232,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
         
-        if (currentSong && resumeTimeRef.current >= 0 && playerRef.current) {
+        if (currentSong && resumeTimeRef.current >= 0 && playerRef.current && isPlaying) {
           try {
             // Calculate new position based on elapsed time
             const newTime = resumeTimeRef.current + elapsedTime;
@@ -239,7 +240,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             const clampedTime = Math.min(Math.max(0, newTime), maxTime);
 
             console.log(
-              `[v0] Resuming playback: was at ${resumeTimeRef.current.toFixed(2)}s, elapsed ${elapsedTime.toFixed(2)}s, resuming at ${clampedTime.toFixed(2)}s`
+              `[v0] Page visible again - resuming playback: was at ${resumeTimeRef.current.toFixed(2)}s, elapsed ${elapsedTime.toFixed(2)}s, resuming at ${clampedTime.toFixed(2)}s`
             );
 
             // Attempt to resume with retry logic
@@ -249,12 +250,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 if (playerRef.current) {
                   playerRef.current.seekTo(clampedTime, true);
                   setCurrentTime(clampedTime);
+                  currentTimeRef.current = clampedTime;
                   
+                  // Only play if it was playing before
                   if (isPlaying) {
                     // Small delay to ensure seek completes
                     setTimeout(() => {
                       if (playerRef.current && typeof playerRef.current.playVideo === "function") {
                         playerRef.current.playVideo();
+                        console.log("[v0] Resumed playback after page visibility change");
                       }
                     }, 100);
                   }
@@ -333,12 +337,22 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     // Prevent auto-pausing when phone screen locks or app goes to background
     // by requesting wake lock (when available) and managing playback state
     let wakeLock: any = null;
+    let wakeLockTimeoutId: NodeJS.Timeout | null = null;
     
     const requestWakeLock = async () => {
       if ("wakeLock" in navigator && isPlaying) {
         try {
           wakeLock = await (navigator as any).wakeLock.request("screen");
           console.debug("[v0] Wake lock requested - screen will stay awake during playback");
+          
+          // Re-request wake lock periodically if it gets released
+          if (wakeLockTimeoutId) clearTimeout(wakeLockTimeoutId);
+          wakeLockTimeoutId = setTimeout(() => {
+            if (isPlaying && !wakeLock) {
+              console.debug("[v0] Wake lock may have been released, re-requesting...");
+              requestWakeLock();
+            }
+          }, 30000); // Check every 30 seconds
         } catch (error) {
           console.debug("[v0] Wake lock request failed (may not be supported):", error);
         }
@@ -355,6 +369,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           console.debug("[v0] Error releasing wake lock:", error);
         }
       }
+      if (wakeLockTimeoutId) clearTimeout(wakeLockTimeoutId);
     };
 
     // Request wake lock when playing
@@ -362,11 +377,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       requestWakeLock();
     }
 
-    // Handle visibility change for wake lock
+    // Handle visibility change - ONLY release wake lock on full page close, not on tab switch
     const handleWakeLockVisibility = async () => {
       if (document.hidden) {
-        await releaseWakeLock();
+        // Don't release on tab switch - keep playing in background
+        console.debug("[v0] Tab hidden but keeping wake lock for background playback");
       } else if (isPlaying) {
+        // Page became visible again and we're still playing
         await requestWakeLock();
       }
     };
@@ -688,10 +705,29 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         }
       });
 
+      // Set up like/favorite handler
+      navigator.mediaSession.setActionHandler("togglelike", async () => {
+        console.debug("[v0] Media Session: toggle like action");
+        if (currentSong && currentSong.id) {
+          try {
+            const liked = await isTrackLiked(currentSong.id);
+            if (liked) {
+              await unlikeTrack(currentSong.id);
+              console.debug("[v0] Track unliked from lock screen");
+            } else {
+              await likeTrack(currentSong);
+              console.debug("[v0] Track liked from lock screen");
+            }
+          } catch (error) {
+            console.error("[v0] Error toggling like from Media Session:", error);
+          }
+        }
+      });
+
       // Update playback state
       navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
 
-      console.debug("[v0] Media Session initialized with full controls");
+      console.debug("[v0] Media Session initialized with full controls (next/prev skip to songs, like button available)");
     } catch (error) {
       console.warn("[v0] Error setting up Media Session:", error);
     }
