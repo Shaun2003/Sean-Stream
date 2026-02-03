@@ -11,7 +11,7 @@ import {
 } from "react";
 import type { YouTubeVideo } from "@/lib/youtube";
 import { durationToSeconds, isValidYouTubeVideoId } from "@/lib/youtube";
-import { addToRecentlyPlayed, isTrackLiked, likeTrack, unlikeTrack } from "@/lib/offline-storage";
+import { addToRecentlyPlayed } from "@/lib/offline-storage";
 import { supabase } from "@/lib/supabase/client";
 import { syncPlaybackHistory } from "@/lib/backend-sync";
 
@@ -64,6 +64,8 @@ interface YTPlayer {
   getDuration: () => number;
   loadVideoById: (videoId: string) => void;
   destroy: () => void;
+  getVideoData?: () => { video_id: string };
+  getPlayerState?: () => number;
 }
 
 export interface Song extends YouTubeVideo {
@@ -705,29 +707,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         }
       });
 
-      // Set up like/favorite handler
-      navigator.mediaSession.setActionHandler("togglelike", async () => {
-        console.debug("[v0] Media Session: toggle like action");
-        if (currentSong && currentSong.id) {
-          try {
-            const liked = await isTrackLiked(currentSong.id);
-            if (liked) {
-              await unlikeTrack(currentSong.id);
-              console.debug("[v0] Track unliked from lock screen");
-            } else {
-              await likeTrack(currentSong);
-              console.debug("[v0] Track liked from lock screen");
-            }
-          } catch (error) {
-            console.error("[v0] Error toggling like from Media Session:", error);
-          }
-        }
-      });
-
       // Update playback state
       navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
 
-      console.debug("[v0] Media Session initialized with full controls (next/prev skip to songs, like button available)");
+      console.debug("[v0] Media Session initialized with full controls (next/prev skip to songs, media controls available)");
     } catch (error) {
       console.warn("[v0] Error setting up Media Session:", error);
     }
