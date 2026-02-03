@@ -15,6 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Heart, Clock, Download, Play, Shuffle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import Loading from "./loading";
+import { supabase } from "@/lib/supabase/client";
+import { syncBookmarkTrack, syncUnbookmarkTrack } from "@/lib/backend-sync";
 
 export default function LibraryPage() {
   const searchParams = useSearchParams();
@@ -91,6 +93,12 @@ export default function LibraryPage() {
       const updated = await getDownloadedTracks();
       setDownloadedTracks(updated);
 
+      // Sync bookmark to backend if user is authenticated
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await syncBookmarkTrack(track as Song, { offline: true });
+      }
+
       toast({
         title: "Success",
         description: `"${track.title}" downloaded successfully!`,
@@ -146,8 +154,8 @@ export default function LibraryPage() {
             {likedTracks.length > 0 ? (
               <div className="space-y-4">
                 {/* Header with gradient */}
-                <div className="flex items-end gap-6 p-6 rounded-lg bg-gradient-to-br from-purple-700/50 to-blue-600/30">
-                  <div className="w-32 h-32 md:w-48 md:h-48 rounded-lg bg-gradient-to-br from-purple-600 to-blue-400 flex items-center justify-center shadow-xl">
+                <div className="flex items-end gap-6 p-6 rounded-lg bg-linear-to-br from-purple-700/50 to-blue-600/30">
+                  <div className="w-32 h-32 md:w-48 md:h-48 rounded-lg bg-linear-to-br from-purple-600 to-blue-400 flex items-center justify-center shadow-xl">
                     <Heart className="w-16 h-16 md:w-20 md:h-20 text-foreground fill-current" />
                   </div>
                   <div className="flex-1">
@@ -210,8 +218,8 @@ export default function LibraryPage() {
             {recentTracks.length > 0 ? (
               <div className="space-y-4">
                 {/* Header */}
-                <div className="flex items-end gap-6 p-6 rounded-lg bg-gradient-to-br from-green-700/50 to-emerald-600/30">
-                  <div className="w-32 h-32 md:w-48 md:h-48 rounded-lg bg-gradient-to-br from-green-600 to-emerald-400 flex items-center justify-center shadow-xl">
+                <div className="flex items-end gap-6 p-6 rounded-lg bg-linear-to-br from-green-700/50 to-emerald-600/30">
+                  <div className="w-32 h-32 md:w-48 md:h-48 rounded-lg bg-linear-to-br from-green-600 to-emerald-400 flex items-center justify-center shadow-xl">
                     <Clock className="w-16 h-16 md:w-20 md:h-20 text-foreground" />
                   </div>
                   <div className="flex-1">
@@ -274,8 +282,8 @@ export default function LibraryPage() {
             {downloadedTracks.length > 0 ? (
               <div className="space-y-4">
                 {/* Header with gradient */}
-                <div className="flex items-end gap-6 p-6 rounded-lg bg-gradient-to-br from-green-700/50 to-emerald-600/30">
-                  <div className="w-32 h-32 md:w-48 md:h-48 rounded-lg bg-gradient-to-br from-green-600 to-emerald-400 flex items-center justify-center shadow-xl">
+                <div className="flex items-end gap-6 p-6 rounded-lg bg-linear-to-br from-green-700/50 to-emerald-600/30">
+                  <div className="w-32 h-32 md:w-48 md:h-48 rounded-lg bg-linear-to-br from-green-600 to-emerald-400 flex items-center justify-center shadow-xl">
                     <Download className="w-16 h-16 md:w-20 md:h-20 text-foreground fill-current" />
                   </div>
                   <div className="flex-1">
@@ -357,3 +365,4 @@ function EmptyState({
     </div>
   );
 }
+

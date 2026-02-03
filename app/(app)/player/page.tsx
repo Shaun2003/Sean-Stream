@@ -25,7 +25,7 @@ import { useState, useEffect } from "react";
 import { isTrackLiked, likeTrack, unlikeTrack } from "@/lib/offline-storage";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { shareTrack, openInYouTube } from "@/lib/share-utils";
+import { shareTrack } from "@/lib/share-utils";
 import { useToast } from "@/hooks/use-toast";
 import {
   DropdownMenu,
@@ -133,7 +133,7 @@ export default function PlayerPage() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-gradient-to-b from-secondary/50 to-background flex">
+    <div className="fixed inset-0 z-50 bg-linear-to-b from-secondary/50 to-background flex">
       {/* Main Player Area */}
       <div className={cn("flex-1 flex flex-col", showQueue && "hidden md:flex")}>
         {/* Header */}
@@ -171,7 +171,7 @@ export default function PlayerPage() {
                 className="w-full h-full object-cover"
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/40 to-primary/10">
+              <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-primary/40 to-primary/10">
                 <span className="text-8xl font-bold text-primary">
                   {currentSong.title[0]}
                 </span>
@@ -195,7 +195,7 @@ export default function PlayerPage() {
             <Button
               variant="ghost"
               size="icon"
-              className="w-10 h-10 flex-shrink-0 mt-1"
+              className="w-10 h-10 shrink-0 mt-1"
               onClick={handleLike}
             >
               <Heart
@@ -334,9 +334,6 @@ export default function PlayerPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => openInYouTube(currentSong.id)}>
-                  Open in YouTube
-                </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleShare}>
                   Share Track
                 </DropdownMenuItem>
@@ -376,7 +373,7 @@ export default function PlayerPage() {
                 Now Playing
               </p>
               <div className="flex items-center gap-3 p-2 rounded-md bg-primary/10">
-                <div className="w-10 h-10 rounded overflow-hidden bg-secondary flex-shrink-0">
+                <div className="w-10 h-10 rounded overflow-hidden bg-secondary shrink-0">
                   {currentSong.thumbnail && (
                     <img
                       src={currentSong.thumbnail || "/placeholder.svg"}
@@ -412,7 +409,7 @@ export default function PlayerPage() {
                       <span className="w-4 text-xs text-muted-foreground">
                         {index + 1}
                       </span>
-                      <div className="w-10 h-10 rounded overflow-hidden bg-secondary flex-shrink-0">
+                      <div className="w-10 h-10 rounded overflow-hidden bg-secondary shrink-0">
                         {track.thumbnail && (
                           <img
                             src={track.thumbnail || "/placeholder.svg"}
@@ -440,3 +437,4 @@ export default function PlayerPage() {
     </div>
   );
 }
+

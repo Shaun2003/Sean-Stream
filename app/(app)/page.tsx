@@ -186,7 +186,7 @@ function QuickPickCard({
       onClick={() => playSong(track as Song)}
       className="flex items-center gap-3 p-2 rounded-md bg-card/60 hover:bg-card transition-all group"
     >
-      <div className="w-12 h-12 rounded overflow-hidden bg-secondary flex-shrink-0 relative">
+      <div className="w-12 h-12 rounded overflow-hidden bg-secondary shrink-0 relative">
         {track.thumbnail ? (
           <img
             src={track.thumbnail || "/placeholder.svg"}
@@ -194,7 +194,7 @@ function QuickPickCard({
             className="w-full h-full object-cover"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-primary/10">
+          <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-primary/30 to-primary/10">
             <span className="text-lg font-bold text-primary">
               {track.title[0]}
             </span>
@@ -230,3 +230,4 @@ function QuickPickCard({
     </button>
   );
 }
+

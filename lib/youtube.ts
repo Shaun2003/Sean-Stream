@@ -1,5 +1,7 @@
 "use client";
 
+import { apiCache, getCacheKey } from "./api-cache";
+
 export interface YouTubeVideo {
   id: string;
   title: string;
@@ -52,6 +54,16 @@ export async function searchYouTube(
   }
 
   try {
+    // Check cache (don't cache paginated results, only first page)
+    const cacheKey = getCacheKey("search-youtube", { query });
+    if (!pageToken) {
+      const cached = apiCache.get<YouTubeSearchResult>(cacheKey);
+      if (cached) {
+        console.log("[v0] Search cache hit:", query);
+        return cached;
+      }
+    }
+
     const params = new URLSearchParams({
       part: "snippet",
       q: `${query} official audio`,
@@ -162,11 +174,18 @@ export async function searchYouTube(
       videos.push(...processedVideos.filter((v): v is YouTubeVideo => v !== null));
     }
 
-    return {
+    const result = {
       videos,
       playlists,
       nextPageToken: searchData.nextPageToken,
     };
+
+    // Cache the result (don't cache paginated results)
+    if (!pageToken) {
+      apiCache.set(cacheKey, result);
+    }
+
+    return result;
   } catch (error) {
     console.error("[v0] YouTube search error:", error);
     return { videos: [], playlists: [] };
@@ -179,6 +198,14 @@ export async function getTrendingMusic(): Promise<YouTubeVideo[]> {
   }
 
   try {
+    // Check cache - trending cache is valid for 1 hour (music doesn't change fast)
+    const cacheKey = "trending-music";
+    const cached = apiCache.get<YouTubeVideo[]>(cacheKey);
+    if (cached) {
+      console.log("[v0] Trending cache hit");
+      return cached;
+    }
+
     const response = await fetch(
       `${YOUTUBE_API_BASE}/videos?part=snippet,contentDetails&chart=mostPopular&regionCode=US&videoCategoryId=10&maxResults=20&key=${YOUTUBE_API_KEY}`
     );
@@ -189,7 +216,7 @@ export async function getTrendingMusic(): Promise<YouTubeVideo[]> {
 
     const data = await response.json();
 
-    return data.items.map(
+    const result = data.items.map(
       (item: {
         id: string;
         snippet: { title: string; channelTitle: string; thumbnails: { high: { url: string } } };
@@ -214,6 +241,10 @@ export async function getTrendingMusic(): Promise<YouTubeVideo[]> {
         };
       }
     );
+
+    // Cache for 1 hour - trending doesn't change rapidly
+    apiCache.set(cacheKey, result, 60 * 60 * 1000);
+    return result;
   } catch (error) {
     console.error("[v0] YouTube trending error:", error);
     return [];
@@ -229,6 +260,14 @@ export async function getPlaylistItems(
   }
 
   try {
+    // Check cache - playlists are cached for 15 minutes
+    const cacheKey = getCacheKey("playlist-items", { playlistId, maxResults });
+    const cached = apiCache.get<YouTubeVideo[]>(cacheKey);
+    if (cached) {
+      console.log("[v0] Playlist cache hit:", playlistId);
+      return cached;
+    }
+
     const response = await fetch(
       `${YOUTUBE_API_BASE}/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=${maxResults}&key=${YOUTUBE_API_KEY}`
     );
@@ -287,6 +326,10 @@ export async function getPlaylistItems(
         }
       )
       .filter((v): v is YouTubeVideo => v !== null);
+
+    // Cache playlist for 15 minutes
+    apiCache.set(cacheKey, result);
+    return result;
   } catch (error) {
     console.error("[v0] YouTube playlist error:", error);
     return [];

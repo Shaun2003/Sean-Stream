@@ -353,7 +353,7 @@ export default function SearchPage() {
                     className="group flex items-center gap-2 p-3 rounded-lg bg-card hover:bg-card/80 transition-colors cursor-pointer"
                     onClick={() => handleHistoryClick(item)}
                   >
-                    <Clock className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    <Clock className="w-4 h-4 text-muted-foreground shrink-0" />
                     <span className="text-sm font-medium truncate text-foreground">
                       {item}
                     </span>
@@ -382,7 +382,7 @@ export default function SearchPage() {
                 <button
                   key={genre.name}
                   onClick={() => handleGenreClick(genre)}
-                  className={`relative h-24 md:h-28 rounded-lg bg-gradient-to-br ${genre.color} p-4 text-left overflow-hidden hover:scale-[1.02] transition-transform`}
+                  className={`relative h-24 md:h-28 rounded-lg bg-linear-to-br ${genre.color} p-4 text-left overflow-hidden hover:scale-[1.02] transition-transform`}
                 >
                   <h3 className="text-lg md:text-xl font-bold text-foreground">
                     {genre.name}
@@ -458,7 +458,7 @@ function TopResultCard({ track }: { track: YouTubeVideo }) {
             className="w-full h-full object-cover"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-primary/10">
+          <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-primary/30 to-primary/10">
             <span className="text-3xl font-bold text-primary">
               {track.title[0]}
             </span>
@@ -499,7 +499,7 @@ function TopResultCard({ track }: { track: YouTubeVideo }) {
               ))}
             </span>
           ) : (
-            <span className="w-5 h-5 border-l-[12px] border-y-[8px] border-y-transparent border-l-primary-foreground ml-1" />
+            <span className="w-5 h-5 border-l-12 border-y-8 border-y-transparent border-l-primary-foreground ml-1" />
           )}
         </Button>
       </div>
@@ -545,7 +545,7 @@ function PlaylistCard({ playlist }: { playlist: PlaylistItem }) {
             className="w-12 h-12 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-xl"
             onClick={handlePlayPlaylist}
           >
-            <span className="w-5 h-5 border-l-[12px] border-y-[8px] border-y-transparent border-l-primary-foreground ml-1" />
+            <span className="w-5 h-5 border-l-12 border-y-8 border-y-transparent border-l-primary-foreground ml-1" />
           </Button>
         </div>
       </div>
@@ -564,3 +564,4 @@ function PlaylistCard({ playlist }: { playlist: PlaylistItem }) {
     </div>
   );
 }
+

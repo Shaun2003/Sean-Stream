@@ -3,7 +3,7 @@
 import type { YouTubeVideo } from "./youtube";
 import { isValidYouTubeVideoId } from "./youtube";
 
-interface StoredDownload extends YouTubeVideo {
+export interface StoredDownload extends YouTubeVideo {
   audioBlob?: Blob;
   audioUrl?: string;
   downloadedAt: number;

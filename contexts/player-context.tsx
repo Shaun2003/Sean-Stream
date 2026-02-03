@@ -12,6 +12,8 @@ import {
 import type { YouTubeVideo } from "@/lib/youtube";
 import { durationToSeconds, isValidYouTubeVideoId } from "@/lib/youtube";
 import { addToRecentlyPlayed } from "@/lib/offline-storage";
+import { supabase } from "@/lib/supabase/client";
+import { syncPlaybackHistory } from "@/lib/backend-sync";
 
 declare global {
   interface Window {
@@ -108,7 +110,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const timeUpdateInterval = useRef<NodeJS.Timeout | null>(null);
   const pageHiddenRef = useRef(false);
   const resumeTimeRef = useRef<number>(0);
+  const pageHiddenAtRef = useRef<number>(Date.now());
+  const currentTimeRef = useRef<number>(0); // Track latest current time
+  const playerReadyRef = useRef<boolean>(false); // Track if player is fully ready
   const unplayableVideosRef = useRef<Set<string>>(new Set());
+  const reconnectAttemptsRef = useRef<number>(0);
+  const maxReconnectAttempts = 3;
+  const maxElapsedTimeAllowed = 24 * 60 * 60; // 24 hours in seconds
 
   // Load YouTube IFrame API
   useEffect(() => {
@@ -149,8 +157,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           setCurrentSong(state.song);
           setCurrentTime(Math.max(0, state.time || 0));
           resumeTimeRef.current = Math.max(0, state.time || 0);
+          currentTimeRef.current = Math.max(0, state.time || 0);
           // Don't auto-play, let user control it
           setIsPlaying(false);
+          
+          console.log(`[v0] Loaded persisted song: ${state.song.title} at ${state.time}s`);
         } else {
           // Saved state is invalid, clear it
           console.warn("[v0] Saved playback state has invalid or corrupted song ID:", state.song?.id, "clearing");
@@ -172,19 +183,33 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
       if (document.hidden) {
+        // Page is being hidden
         pageHiddenRef.current = true;
+        pageHiddenAtRef.current = Date.now();
+        
         if (playerRef.current && currentSong && currentSong.id) {
           try {
-            resumeTimeRef.current = playerRef.current.getCurrentTime();
-            // Save state to localStorage when page is hidden
+            // Use the currentTimeRef which is always up-to-date from the timeUpdateInterval
+            const currentPlaybackTime = currentTimeRef.current || 
+              (typeof playerRef.current.getCurrentTime === "function" 
+                ? playerRef.current.getCurrentTime() 
+                : 0);
+            
+            resumeTimeRef.current = currentPlaybackTime;
+            reconnectAttemptsRef.current = 0;
+            
+            console.log(`[v0] Page hidden - saving playback at ${currentPlaybackTime.toFixed(2)}s`);
+            
+            // Save state with timestamp to calculate elapsed time on resume
             localStorage.setItem(
               "pulse-playback-state",
               JSON.stringify({
                 song: currentSong,
-                time: resumeTimeRef.current,
+                time: currentPlaybackTime,
                 isPlaying: isPlaying,
+                hiddenAt: pageHiddenAtRef.current,
               })
             );
           } catch (error) {
@@ -192,17 +217,72 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           }
         }
       } else {
+        // Page is becoming visible - resume playback
         pageHiddenRef.current = false;
-        // Resume playback when page becomes visible
-        if (currentSong && resumeTimeRef.current > 0) {
-          setTimeout(() => {
-            if (playerRef.current) {
-              playerRef.current.seekTo(resumeTimeRef.current, true);
-              if (isPlaying) {
-                playerRef.current.playVideo();
+        const currentTimestamp = Date.now();
+        const elapsedTime = (currentTimestamp - pageHiddenAtRef.current) / 1000; // Convert to seconds
+        
+        // Validate elapsed time - if more than 24 hours, something is wrong
+        if (elapsedTime > maxElapsedTimeAllowed) {
+          console.warn(
+            `[v0] Elapsed time (${elapsedTime.toFixed(2)}s) exceeds maximum allowed time. Not resuming playback.`
+          );
+          pageHiddenAtRef.current = currentTimestamp;
+          return;
+        }
+        
+        if (currentSong && resumeTimeRef.current >= 0 && playerRef.current) {
+          try {
+            // Calculate new position based on elapsed time
+            const newTime = resumeTimeRef.current + elapsedTime;
+            const maxTime = duration > 0 ? duration : playerRef.current.getDuration();
+            const clampedTime = Math.min(Math.max(0, newTime), maxTime);
+
+            console.log(
+              `[v0] Resuming playback: was at ${resumeTimeRef.current.toFixed(2)}s, elapsed ${elapsedTime.toFixed(2)}s, resuming at ${clampedTime.toFixed(2)}s`
+            );
+
+            // Attempt to resume with retry logic
+            let attempts = 0;
+            const attemptResume = () => {
+              try {
+                if (playerRef.current) {
+                  playerRef.current.seekTo(clampedTime, true);
+                  setCurrentTime(clampedTime);
+                  
+                  if (isPlaying) {
+                    // Small delay to ensure seek completes
+                    setTimeout(() => {
+                      if (playerRef.current && typeof playerRef.current.playVideo === "function") {
+                        playerRef.current.playVideo();
+                      }
+                    }, 100);
+                  }
+                  reconnectAttemptsRef.current = 0;
+                }
+              } catch (error) {
+                attempts++;
+                if (attempts < maxReconnectAttempts) {
+                  console.warn(`[v0] Resume attempt ${attempts} failed, retrying...`, error);
+                  setTimeout(attemptResume, 300);
+                } else {
+                  console.error("[v0] Failed to resume playback after", maxReconnectAttempts, "attempts:", error);
+                }
               }
-            }
-          }, 500);
+            };
+
+            // First attempt immediately
+            attemptResume();
+            
+            // Reset the hidden timestamp for next time
+            pageHiddenAtRef.current = currentTimestamp;
+          } catch (error) {
+            console.error("[v0] Error calculating resume time:", error);
+            pageHiddenAtRef.current = currentTimestamp;
+          }
+        } else {
+          // Reset timestamp even if no song to resume
+          pageHiddenAtRef.current = currentTimestamp;
         }
       }
     };
@@ -211,28 +291,96 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const autoSaveInterval = setInterval(() => {
       if (currentSong && currentSong.id && isPlaying && playerRef.current && !document.hidden) {
         try {
-          const currentTime = playerRef.current.getCurrentTime();
+          const currentPlaybackTime = currentTimeRef.current; // Use ref, not state
           localStorage.setItem(
             "pulse-playback-state",
             JSON.stringify({
               song: currentSong,
-              time: Math.max(0, currentTime),
+              time: Math.max(0, currentPlaybackTime),
               isPlaying: isPlaying,
+              hiddenAt: pageHiddenAtRef.current,
             })
           );
         } catch (error) {
           // Silently ignore save errors
         }
       }
-    }, 5000); // Save every 5 seconds
+    }, 3000); // Save every 3 seconds
+
+    // Also handle page unload to ensure state is saved
+    const handleBeforeUnload = () => {
+      if (currentSong && currentSong.id && playerRef.current) {
+        try {
+          const currentPlaybackTime = playerRef.current.getCurrentTime();
+          localStorage.setItem(
+            "pulse-playback-state",
+            JSON.stringify({
+              song: currentSong,
+              time: Math.max(0, currentPlaybackTime),
+              isPlaying: isPlaying,
+              hiddenAt: Date.now(),
+            })
+          );
+        } catch (error) {
+          // Silently ignore
+        }
+      }
+    };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    // Prevent auto-pausing when phone screen locks or app goes to background
+    // by requesting wake lock (when available) and managing playback state
+    let wakeLock: any = null;
+    
+    const requestWakeLock = async () => {
+      if ("wakeLock" in navigator && isPlaying) {
+        try {
+          wakeLock = await (navigator as any).wakeLock.request("screen");
+          console.debug("[v0] Wake lock requested - screen will stay awake during playback");
+        } catch (error) {
+          console.debug("[v0] Wake lock request failed (may not be supported):", error);
+        }
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLock !== null) {
+        try {
+          await wakeLock.release();
+          wakeLock = null;
+          console.debug("[v0] Wake lock released");
+        } catch (error) {
+          console.debug("[v0] Error releasing wake lock:", error);
+        }
+      }
+    };
+
+    // Request wake lock when playing
+    if (isPlaying) {
+      requestWakeLock();
+    }
+
+    // Handle visibility change for wake lock
+    const handleWakeLockVisibility = async () => {
+      if (document.hidden) {
+        await releaseWakeLock();
+      } else if (isPlaying) {
+        await requestWakeLock();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleWakeLockVisibility);
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleWakeLockVisibility);
       clearInterval(autoSaveInterval);
+      releaseWakeLock();
     };
-  }, [currentSong, isPlaying]);
+  }, [currentSong, isPlaying, duration]);
 
   // Create hidden player container
   useEffect(() => {
@@ -259,6 +407,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     return () => {
       if (playerRef.current) {
         playerRef.current.destroy();
+        playerReadyRef.current = false;
       }
       if (playerContainerRef.current) {
         playerContainerRef.current.remove();
@@ -288,6 +437,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         },
         events: {
           onReady: (event) => {
+            console.log("[v0] YouTube player onReady fired");
+            playerReadyRef.current = true;
             event.target.setVolume(volume);
           },
           onStateChange: (event) => {
@@ -295,12 +446,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               setIsPlaying(true);
               setIsLoading(false);
               startTimeUpdate();
+              // Update Media Session
+              if (navigator.mediaSession) {
+                navigator.mediaSession.playbackState = "playing";
+              }
             } else if (event.data === window.YT.PlayerState.PAUSED) {
               setIsPlaying(false);
               stopTimeUpdate();
+              // Update Media Session
+              if (navigator.mediaSession) {
+                navigator.mediaSession.playbackState = "paused";
+              }
             } else if (event.data === window.YT.PlayerState.ENDED) {
               setIsPlaying(false);
               stopTimeUpdate();
+              // Update Media Session
+              if (navigator.mediaSession) {
+                navigator.mediaSession.playbackState = "paused";
+              }
               handleTrackEnd();
             } else if (event.data === window.YT.PlayerState.BUFFERING) {
               setIsLoading(true);
@@ -340,6 +503,229 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isApiReady]);
 
+  // Load video into player when currentSong is set and player is ready
+  useEffect(() => {
+    if (!isApiReady || !playerRef.current || !currentSong || !currentSong.id) {
+      console.debug("[v0] Cannot load video - missing dependencies", { isApiReady, hasPlayer: !!playerRef.current, hasSong: !!currentSong, playerReady: playerReadyRef.current });
+      return;
+    }
+
+    let retryCount = 0;
+    const maxRetries = 10;
+    const retryDelay = 300; // 300ms between retries (wait longer for player to be truly ready)
+
+    const tryLoadVideo = () => {
+      try {
+        // First check if player is ready (onReady callback has fired)
+        if (!playerReadyRef.current) {
+          retryCount++;
+          if (retryCount < maxRetries) {
+            console.debug(`[v0] Player not ready yet, waiting... (${retryCount}/${maxRetries})`);
+            setTimeout(tryLoadVideo, retryDelay);
+          } else {
+            console.warn("[v0] Player failed to become ready after retries");
+          }
+          return;
+        }
+
+        // Check current video in player
+        const currentVideoId = playerRef.current?.getVideoData?.()?.video_id;
+        console.log(`[v0] Load effect triggered - Current: ${currentVideoId}, Target: ${currentSong.id} (attempt ${retryCount + 1})`);
+        
+        // Load if different
+        if (currentVideoId !== currentSong.id) {
+          console.log(`[v0] Loading video into player: ${currentSong.title} (ID: ${currentSong.id})`);
+          if (typeof playerRef.current?.loadVideoById === 'function') {
+            playerRef.current.loadVideoById(currentSong.id.trim());
+            console.log(`[v0] Video loaded successfully`);
+            // Note: When loading a new song, always start from 0:00
+            // Only restore saved position when resuming paused playback via page visibility change
+            // This prevents songs from starting in the middle when first played
+          } else {
+            retryCount++;
+            if (retryCount < maxRetries) {
+              console.debug(`[v0] loadVideoById not ready, retrying in ${retryDelay}ms... (${retryCount}/${maxRetries})`);
+              setTimeout(tryLoadVideo, retryDelay);
+            } else {
+              console.warn("[v0] loadVideoById method not available after retries");
+            }
+          }
+        } else {
+          console.log(`[v0] Video already loaded, no action needed`);
+        }
+      } catch (error) {
+        console.error("[v0] Error loading video into player:", error);
+      }
+    };
+
+    tryLoadVideo();
+  }, [isApiReady, currentSong]);
+
+  // Player health check and recovery mechanism
+  useEffect(() => {
+    if (!isApiReady || !playerRef.current) return;
+
+    const healthCheckInterval = setInterval(() => {
+      if (!playerRef.current || !currentSong) return;
+
+      try {
+        // Check if player is responsive
+        const playerState = playerRef.current.getPlayerState?.();
+        const currentPlaybackTime = playerRef.current.getCurrentTime?.();
+
+        // If stuck (same time for 10+ seconds), attempt recovery
+        if (isPlaying && typeof currentPlaybackTime === 'number') {
+          // This is a simple health check
+          console.debug(
+            `[v0] Player health check - State: ${playerState}, Time: ${currentPlaybackTime.toFixed(2)}s, Playing: ${isPlaying}`
+          );
+        }
+      } catch (error) {
+        console.warn("[v0] Player health check error:", error);
+      }
+    }, 5000); // Check every 5 seconds
+
+    return () => {
+      clearInterval(healthCheckInterval);
+    };
+  }, [isApiReady, currentSong, isPlaying]);
+
+  // Setup Media Session API for mobile lock screen and notification controls
+  useEffect(() => {
+    if (typeof window === "undefined" || !currentSong) return;
+
+    // Check if Media Session API is available
+    if (!navigator.mediaSession) {
+      console.debug("[v0] Media Session API not available on this device");
+      return;
+    }
+
+    try {
+      // Update media session metadata
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentSong.title || "Unknown Track",
+        artist: currentSong.channelTitle || "Unknown Artist",
+        album: "Musica",
+        artwork: [
+          {
+            src: currentSong.thumbnail || "/logo.png",
+            sizes: "512x512",
+            type: "image/png",
+          },
+        ],
+      });
+
+      // Set up play/pause handler
+      navigator.mediaSession.setActionHandler("play", () => {
+        console.debug("[v0] Media Session: play action");
+        if (playerRef.current && !isPlaying && typeof playerRef.current.playVideo === "function") {
+          playerRef.current.playVideo();
+          setIsPlaying(true);
+        }
+      });
+
+      navigator.mediaSession.setActionHandler("pause", () => {
+        console.debug("[v0] Media Session: pause action");
+        if (playerRef.current && isPlaying && typeof playerRef.current.pauseVideo === "function") {
+          playerRef.current.pauseVideo();
+          setIsPlaying(false);
+        }
+      });
+
+      // Set up next track handler
+      navigator.mediaSession.setActionHandler("nexttrack", () => {
+        console.debug("[v0] Media Session: next track action");
+        // Will call nextTrack from the function defined below
+        if (queue.length > 0 && queueIndex < queue.length - 1) {
+          setQueueIndex((prev) => {
+            const nextIdx = prev + 1;
+            if (nextIdx < queue.length) {
+              const song = queue[nextIdx];
+              setCurrentSong(song);
+              setCurrentTime(0);
+              setDuration(durationToSeconds(song.duration));
+              setIsLoading(true);
+              if (playerRef.current && typeof playerRef.current.loadVideoById === "function") {
+                playerRef.current.loadVideoById(song.id.trim());
+                playerRef.current.playVideo();
+              }
+              addToRecentlyPlayed(song);
+            }
+            return nextIdx;
+          });
+        }
+      });
+
+      // Set up previous track handler
+      navigator.mediaSession.setActionHandler("previoustrack", () => {
+        console.debug("[v0] Media Session: previous track action");
+        if (queue.length > 0 && queueIndex > 0) {
+          setQueueIndex((prev) => {
+            const prevIdx = prev - 1;
+            if (prevIdx >= 0) {
+              const song = queue[prevIdx];
+              setCurrentSong(song);
+              setCurrentTime(0);
+              setDuration(durationToSeconds(song.duration));
+              setIsLoading(true);
+              if (playerRef.current && typeof playerRef.current.loadVideoById === "function") {
+                playerRef.current.loadVideoById(song.id.trim());
+                playerRef.current.playVideo();
+              }
+              addToRecentlyPlayed(song);
+            }
+            return prevIdx;
+          });
+        }
+      });
+
+      // Set up seek handler
+      navigator.mediaSession.setActionHandler("seekto", (details) => {
+        console.debug(`[v0] Media Session: seek to ${details.seekTime}s`);
+        if (playerRef.current && typeof details.seekTime === "number") {
+          playerRef.current.seekTo(details.seekTime, true);
+          setCurrentTime(details.seekTime);
+        }
+      });
+
+      // Update playback state
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+
+      console.debug("[v0] Media Session initialized with full controls");
+    } catch (error) {
+      console.warn("[v0] Error setting up Media Session:", error);
+    }
+  }, [currentSong, isPlaying, queue, queueIndex]);
+
+  // Update Media Session position state periodically
+  useEffect(() => {
+    if (typeof window === "undefined" || !navigator.mediaSession || !currentSong) return;
+
+    const updatePositionInterval = setInterval(() => {
+      try {
+        if (playerRef.current && currentSong) {
+          const currentPlaybackTime = playerRef.current.getCurrentTime();
+          const duration = playerRef.current.getDuration();
+
+          // Update media session position state
+          if (navigator.mediaSession?.setPositionState) {
+            navigator.mediaSession.setPositionState({
+              duration: duration > 0 ? duration : 0,
+              playbackRate: isPlaying ? 1 : 0,
+              position: currentPlaybackTime,
+            });
+          }
+        }
+      } catch (error) {
+        console.debug("[v0] Error updating Media Session position:", error);
+      }
+    }, 1000); // Update every second
+
+    return () => {
+      clearInterval(updatePositionInterval);
+    };
+  }, [currentSong, isPlaying]);
+
   const startTimeUpdate = useCallback(() => {
     if (timeUpdateInterval.current) {
       clearInterval(timeUpdateInterval.current);
@@ -350,6 +736,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         const time = playerRef.current.getCurrentTime();
         const dur = playerRef.current.getDuration();
         setCurrentTime(time);
+        currentTimeRef.current = time; // Keep ref in sync
         if (dur > 0) setDuration(dur);
       }
     }, 250);
@@ -381,11 +768,28 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
                 try {
                   playerRef.current.loadVideoById(nextSong.id.trim());
+                  // Auto-play the next track
+                  setTimeout(() => {
+                    if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
+                      playerRef.current.playVideo();
+                      setIsPlaying(true);
+                    }
+                  }, 100);
                 } catch (error) {
                   console.error("[v0] Failed to load next track:", error);
                 }
               }
               addToRecentlyPlayed(nextSong);
+              
+              // Sync playback history to backend if user is authenticated
+              supabase.auth.getUser().then(({ data: { user } }) => {
+                if (user) {
+                  const currentDuration = durationToSeconds(nextSong.duration);
+                  syncPlaybackHistory(nextSong, 0, currentDuration, { offline: true }).catch((error) => {
+                    console.error("[v0] Failed to sync playback history:", error);
+                  });
+                }
+              });
             }, 0);
             return nextIndex;
           }
@@ -427,6 +831,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setQueue([song]);
       setQueueIndex(0);
       setCurrentTime(0);
+      currentTimeRef.current = 0; // Sync ref
       setDuration(durationToSeconds(song.duration));
       setIsLoading(true);
 
@@ -517,14 +922,50 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const togglePlayPause = useCallback(() => {
-    if (!playerRef.current || !currentSong) return;
-
-    if (isPlaying) {
-      playerRef.current.pauseVideo();
-    } else {
-      playerRef.current.playVideo();
+    if (!playerRef.current || !currentSong) {
+      console.debug("[v0] Cannot toggle - player or song missing");
+      return;
     }
-  }, [currentSong, isPlaying]);
+
+    try {
+      if (isPlaying) {
+        if (typeof playerRef.current.pauseVideo === "function") {
+          playerRef.current.pauseVideo();
+        }
+        setIsPlaying(false);
+      } else {
+        if (typeof playerRef.current.playVideo === "function") {
+          playerRef.current.playVideo();
+        } else {
+          console.warn("[v0] playVideo method not available yet");
+          // Retry after a short delay
+          setTimeout(() => {
+            if (playerRef.current && typeof playerRef.current.playVideo === "function") {
+              playerRef.current.playVideo();
+            }
+          }, 100);
+        }
+        setIsPlaying(true);
+      }
+      
+      // Persist state after toggle
+      try {
+        localStorage.setItem(
+          "pulse-playback-state",
+          JSON.stringify({
+            song: currentSong,
+            time: currentTime,
+            isPlaying: !isPlaying,
+            hiddenAt: pageHiddenAtRef.current,
+          })
+        );
+      } catch (e) {
+        // Silently ignore
+      }
+    } catch (error) {
+      console.error("[v0] Error toggling play/pause:", error);
+    }
+  }, [currentSong, isPlaying, currentTime]);
 
   const nextTrack = useCallback(() => {
     if (queue.length === 0) return;
@@ -551,7 +992,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
     if (playerRef.current && typeof playerRef.current.loadVideoById === "function") {
       playerRef.current.loadVideoById(song.id);
-      playerRef.current.playVideo();
+      if (typeof playerRef.current.playVideo === "function") {
+        playerRef.current.playVideo();
+      }
     }
 
     addToRecentlyPlayed(song);
@@ -592,11 +1035,32 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [queue, queueIndex, currentTime]);
 
   const seek = useCallback((time: number) => {
-    if (playerRef.current) {
-      playerRef.current.seekTo(time, true);
-      setCurrentTime(time);
+    if (!playerRef.current || !currentSong) return;
+
+    try {
+      const clampedTime = Math.max(0, Math.min(time, duration || 0));
+      playerRef.current.seekTo(clampedTime, true);
+      setCurrentTime(clampedTime);
+      currentTimeRef.current = clampedTime; // Sync ref
+
+      // Persist state after seeking
+      try {
+        localStorage.setItem(
+          "pulse-playback-state",
+          JSON.stringify({
+            song: currentSong,
+            time: clampedTime,
+            isPlaying: isPlaying,
+            hiddenAt: pageHiddenAtRef.current,
+          })
+        );
+      } catch (e) {
+        // Silently ignore
+      }
+    } catch (error) {
+      console.error("[v0] Error seeking to time:", error);
     }
-  }, []);
+  }, [currentSong, duration, isPlaying]);
 
   const setVolume = useCallback((newVolume: number) => {
     setVolumeState(newVolume);

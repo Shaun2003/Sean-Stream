@@ -6,3 +6,5 @@ export function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 }
+// Create a singleton instance for use in client components
+export const supabase = createClient();
