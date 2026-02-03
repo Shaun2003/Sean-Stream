@@ -1,9 +1,19 @@
 "use client";
 
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, MoreVertical } from "lucide-react";
 import { usePlayer, type Song } from "@/contexts/player-context";
 import type { YouTubeVideo } from "@/lib/youtube";
 import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { AddToPlaylistDialog } from "./add-to-playlist-dialog";
+import { optimizeImageUrl } from "@/lib/performance";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Plus } from "lucide-react";
 
 interface TrackCardProps {
   track: YouTubeVideo;
@@ -12,9 +22,11 @@ interface TrackCardProps {
 
 export function TrackCard({ track, showArtist = true }: TrackCardProps) {
   const { playSong, currentSong, isPlaying, togglePlayPause } = usePlayer();
+  const [showAddToPlaylist, setShowAddToPlaylist] = useState(false);
 
   const isCurrentTrack = currentSong?.id === track.id;
   const isCurrentlyPlaying = isCurrentTrack && isPlaying;
+  const optimizedThumbnail = optimizeImageUrl(track.thumbnail);
 
   const handlePlay = () => {
     if (isCurrentTrack) {
@@ -29,12 +41,13 @@ export function TrackCard({ track, showArtist = true }: TrackCardProps) {
       <div className="relative aspect-square rounded-md overflow-hidden mb-3 bg-secondary shadow-lg">
         {track.thumbnail ? (
           <img
-            src={track.thumbnail || "/placeholder.svg"}
+            src={optimizedThumbnail}
             alt={track.title}
             className="w-full h-full object-cover"
+            loading="lazy"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-primary/10">
+          <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-primary/30 to-primary/10">
             <span className="text-4xl font-bold text-primary">
               {track.title[0]}
             </span>
@@ -79,6 +92,32 @@ export function TrackCard({ track, showArtist = true }: TrackCardProps) {
             </div>
           </div>
         )}
+
+        {/* More options menu */}
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="w-8 h-8 p-0 bg-black/50 hover:bg-black/70 text-white"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreVertical className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowAddToPlaylist(true);
+              }}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add to Playlist
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <div onClick={handlePlay}>
@@ -91,6 +130,14 @@ export function TrackCard({ track, showArtist = true }: TrackCardProps) {
           </p>
         )}
       </div>
+
+      {/* Add to Playlist Dialog */}
+      <AddToPlaylistDialog 
+        open={showAddToPlaylist}
+        onOpenChange={setShowAddToPlaylist}
+        song={track as Song}
+      />
     </div>
   );
 }
+

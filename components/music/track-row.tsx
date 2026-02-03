@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, Pause, MoreHorizontal, Heart, ListPlus, Download, Trash2, CheckCircle } from "lucide-react";
+import { Play, Pause, MoreHorizontal, Heart, ListPlus, Download, Trash2, CheckCircle, Plus } from "lucide-react";
 import { usePlayer, type Song } from "@/contexts/player-context";
 import type { YouTubeVideo } from "@/lib/youtube";
 import { Button } from "@/components/ui/button";
@@ -10,10 +10,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useState, useEffect, memo } from "react";
+import { useState, useEffect, memo, useCallback } from "react";
 import { isTrackLiked, likeTrack, unlikeTrack } from "@/lib/offline-storage";
 import { isTrackDownloaded, removeDownloadedTrack } from "@/lib/offline-download";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase/client";
+import { syncLikeTrack, syncUnlikeTrack } from "@/lib/backend-sync";
+import { AddToPlaylistDialog } from "./add-to-playlist-dialog";
 
 interface TrackRowProps {
   track: YouTubeVideo;
@@ -23,6 +26,7 @@ interface TrackRowProps {
   downloadProgress?: number;
   isDownloading?: boolean;
   isDownloaded?: boolean;
+  onAddToPlaylistSuccess?: () => void; // Callback when song is successfully added to playlist
 }
 
 function TrackRowComponent({ 
@@ -32,7 +36,8 @@ function TrackRowComponent({
   onDownloadClick,
   downloadProgress = 0,
   isDownloading = false,
-  isDownloaded: propIsDownloaded
+  isDownloaded: propIsDownloaded,
+  onAddToPlaylistSuccess
 }: TrackRowProps) {
   const { playSong, addToQueue, currentSong, isPlaying, togglePlayPause } =
     usePlayer();
@@ -40,6 +45,7 @@ function TrackRowComponent({
   const [isDownloadedState, setIsDownloadedState] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [propValueOverride, setPropValueOverride] = useState<boolean | undefined>(propIsDownloaded);
+  const [showAddToPlaylist, setShowAddToPlaylist] = useState(false);
 
   // Use prop if provided AND not overridden by action, otherwise use state
   const isDownloaded = propValueOverride !== undefined ? propValueOverride : isDownloadedState;
@@ -62,25 +68,40 @@ function TrackRowComponent({
     }
   }, [track.id, propIsDownloaded]);
 
-  const handlePlay = () => {
+  const handlePlay = useCallback(() => {
     if (isCurrentTrack) {
       togglePlayPause();
     } else {
       playSong(track as Song);
     }
-  };
+  }, [isCurrentTrack, track, togglePlayPause, playSong]);
 
-  const handleLike = async () => {
-    if (isLiked) {
-      await unlikeTrack(track.id);
-      setIsLiked(false);
-    } else {
-      await likeTrack(track);
-      setIsLiked(true);
+  const handleLike = useCallback(async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (isLiked) {
+        await unlikeTrack(track.id);
+        setIsLiked(false);
+        
+        if (user) {
+          await syncUnlikeTrack(track.id, { offline: true });
+        }
+      } else {
+        await likeTrack(track);
+        setIsLiked(true);
+        
+        if (user) {
+          await syncLikeTrack(track as Song, { offline: true });
+        }
+      }
+    } catch (error) {
+      console.error("[v0] Error updating like:", error);
+      setIsLiked(!isLiked);
     }
-  };
+  }, [isLiked, track]);
 
-  const handleRemoveDownload = async (e: React.MouseEvent) => {
+  const handleRemoveDownload = useCallback(async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     try {
@@ -92,7 +113,7 @@ function TrackRowComponent({
     } catch (error) {
       console.error("[v0] Failed to delete download:", error);
     }
-  };
+  }, [track.id]);
 
   return (
     <div
@@ -104,30 +125,46 @@ function TrackRowComponent({
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Index / Play button */}
-      <div className="w-6 sm:w-8 flex items-center justify-center flex-shrink-0">
-        {isHovered || isCurrentlyPlaying ? (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="w-6 h-6 p-0"
-            onClick={handlePlay}
-          >
-            {isCurrentlyPlaying ? (
-              <Pause className="w-4 h-4" />
-            ) : (
-              <Play className="w-4 h-4 fill-current" />
-            )}
-          </Button>
-        ) : (
-          <span
-            className={cn(
-              "text-xs sm:text-sm tabular-nums",
-              isCurrentTrack ? "text-primary" : "text-muted-foreground"
-            )}
-          >
-            {index}
-          </span>
-        )}
+      <div className="w-6 sm:w-8 flex items-center justify-center shrink-0">
+        {/* On mobile: always show play button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="w-6 h-6 p-0 flex sm:hidden"
+          onClick={handlePlay}
+        >
+          {isCurrentlyPlaying ? (
+            <Pause className="w-4 h-4" />
+          ) : (
+            <Play className="w-4 h-4 fill-current" />
+          )}
+        </Button>
+        {/* On desktop: show play button on hover, otherwise show index */}
+        <div className="hidden sm:flex items-center justify-center w-full h-full">
+          {isHovered || isCurrentlyPlaying ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-6 h-6 p-0"
+              onClick={handlePlay}
+            >
+              {isCurrentlyPlaying ? (
+                <Pause className="w-4 h-4" />
+              ) : (
+                <Play className="w-4 h-4 fill-current" />
+              )}
+            </Button>
+          ) : (
+            <span
+              className={cn(
+                "text-xs sm:text-sm tabular-nums",
+                isCurrentTrack ? "text-primary" : "text-muted-foreground"
+              )}
+            >
+              {index}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Thumbnail - visible on all devices */}
@@ -162,7 +199,7 @@ function TrackRowComponent({
 
       {/* Download Progress / Status */}
       {isDownloading && (
-        <div className="flex items-center gap-1 sm:gap-2 w-20 sm:w-24 flex-shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 w-20 sm:w-24 shrink-0">
           <div className="flex-1 bg-secondary rounded-full h-1 overflow-hidden">
             <div
               className="bg-green-500 h-full transition-all duration-300"
@@ -177,7 +214,7 @@ function TrackRowComponent({
       {!isDownloading && (
         <>
           {isDownloaded ? (
-            <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
               <Button
                 variant="ghost"
@@ -232,6 +269,14 @@ function TrackRowComponent({
               <ListPlus className="w-4 h-4 mr-2" />
               Add to queue
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowAddToPlaylist(true);
+            }}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add to Playlist
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={handleLike}>
               <Heart className="w-4 h-4 mr-2" />
               {isLiked ? "Remove from Liked" : "Add to Liked Songs"}
@@ -258,8 +303,17 @@ function TrackRowComponent({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Add to Playlist Dialog */}
+      <AddToPlaylistDialog 
+        open={showAddToPlaylist}
+        onOpenChange={setShowAddToPlaylist}
+        song={track as Song}
+        onAddSuccess={onAddToPlaylistSuccess}
+      />
     </div>
   );
 }
 
 export const TrackRow = memo(TrackRowComponent);
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { usePlayer } from "@/contexts/player-context";
+import { usePlayer, type Song } from "@/contexts/player-context";
 import {
   Play,
   Pause,
@@ -16,6 +16,7 @@ import {
   Loader2,
   Share2,
   MoreVertical,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -23,7 +24,7 @@ import { cn } from "@/lib/utils";
 import { useState, useEffect, memo } from "react";
 import Link from "next/link";
 import { isTrackLiked, likeTrack, unlikeTrack } from "@/lib/offline-storage";
-import { shareTrack, openInYouTube } from "@/lib/share-utils";
+import { shareTrack } from "@/lib/share-utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { AddToPlaylistDialog } from "@/components/music/add-to-playlist-dialog";
 
 interface NowPlayingBarProps {
   className?: string;
@@ -60,6 +62,7 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
   const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("off");
   const [prevVolume, setPrevVolume] = useState(volume);
   const [showQueue, setShowQueue] = useState(false);
+  const [showAddToPlaylist, setShowAddToPlaylist] = useState(false);
 
   useEffect(() => {
     if (currentSong) {
@@ -86,7 +89,14 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
   };
 
   const handleShare = async () => {
-    const result = await shareTrack(currentSong);
+    if (!currentSong) {
+      toast({
+        title: "No song",
+        description: "Please play a song first",
+      });
+      return;
+    }
+    const result = await shareTrack(currentSong as Song);
     if (result) {
       toast({
         title: "Shared",
@@ -129,19 +139,26 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
   if (mobile) {
     return (
       <div className="fixed bottom-16 left-0 right-0 z-30 px-3 safe-area-bottom">
-        <Link href="/player" className="block">
-          <div className="bg-card/95 backdrop-blur-xl rounded-xl shadow-lg border border-border overflow-hidden">
-            {/* Progress bar */}
-            <div className="h-1 bg-secondary">
-              <div
-                className="h-full bg-primary transition-all duration-200"
-                style={{ width: `${progress}%` }}
-              />
+        <div className="bg-card/95 backdrop-blur-xl rounded-xl shadow-lg border border-border overflow-hidden">
+          {/* Interactive Progress Slider */}
+          <div className="px-3 pt-2">
+            <Slider
+              value={[currentTime]}
+              max={duration || 100}
+              step={0.1}
+              onValueChange={(value) => seek(value[0])}
+              className="cursor-pointer"
+            />
+            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+              <span>{formatTime(currentTime)}</span>
+              <span>{formatTime(duration)}</span>
             </div>
+          </div>
 
-            <div className="flex items-center gap-3 p-3">
-              {/* Album art */}
-              <div className="w-11 h-11 rounded-lg overflow-hidden bg-secondary flex-shrink-0">
+          <div className="flex items-center gap-3 p-3">
+            {/* Album art */}
+            <Link href="/player" className="block">
+              <div className="w-11 h-11 rounded-lg overflow-hidden bg-secondary shrink-0">
                 {currentSong.thumbnail ? (
                   <img
                     src={currentSong.thumbnail || "/placeholder.svg"}
@@ -149,65 +166,65 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-primary/10">
+                  <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-primary/30 to-primary/10">
                     <span className="text-lg font-bold text-primary">
                       {currentSong.title[0]}
                     </span>
                   </div>
                 )}
               </div>
+            </Link>
 
-              {/* Song info */}
-              <div className="flex-1 min-w-0">
-                <h3 className="font-medium text-sm text-foreground truncate">
-                  {currentSong.title}
-                </h3>
-                <p className="text-xs text-muted-foreground truncate">
-                  {currentSong.artist}
-                </p>
-              </div>
+            {/* Song info */}
+            <Link href="/player" className="flex-1 min-w-0 block">
+              <h3 className="font-medium text-sm text-foreground truncate">
+                {currentSong.title}
+              </h3>
+              <p className="text-xs text-muted-foreground truncate">
+                {currentSong.artist}
+              </p>
+            </Link>
 
-              {/* Controls */}
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="w-9 h-9"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handleLike();
-                  }}
-                >
-                  <Heart
-                    className={cn(
-                      "w-5 h-5",
-                      isLiked && "fill-primary text-primary"
-                    )}
-                  />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="w-10 h-10"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    togglePlayPause();
-                  }}
-                >
-                  {isLoading ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : isPlaying ? (
-                    <Pause className="w-5 h-5" />
-                  ) : (
-                    <Play className="w-5 h-5 fill-current" />
+            {/* Controls */}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="w-9 h-9"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleLike();
+                }}
+              >
+                <Heart
+                  className={cn(
+                    "w-5 h-5",
+                    isLiked && "fill-primary text-primary"
                   )}
-                </Button>
-              </div>
+                />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="w-10 h-10"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  togglePlayPause();
+                }}
+              >
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : isPlaying ? (
+                  <Pause className="w-5 h-5" />
+                ) : (
+                  <Play className="w-5 h-5 fill-current" />
+                )}
+              </Button>
             </div>
           </div>
-        </Link>
+        </div>
       </div>
     );
   }
@@ -222,7 +239,7 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
     >
       {/* Left: Song info */}
       <div className="flex items-center gap-3 w-[30%] min-w-[180px]">
-        <div className="w-14 h-14 rounded-md overflow-hidden bg-secondary flex-shrink-0">
+        <div className="w-14 h-14 rounded-md overflow-hidden bg-secondary shrink-0">
           {currentSong.thumbnail ? (
             <img
               src={currentSong.thumbnail || "/placeholder.svg"}
@@ -230,7 +247,7 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
               className="w-full h-full object-cover"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-primary/30 to-primary/10">
+            <div className="w-full h-full flex items-center justify-center bg-linear-to-br from-primary/30 to-primary/10">
               <span className="text-xl font-bold text-primary">
                 {currentSong.title[0]}
               </span>
@@ -406,8 +423,9 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => openInYouTube(currentSong.id)}>
-              Open in YouTube
+            <DropdownMenuItem onClick={() => setShowAddToPlaylist(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add to Playlist
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleShare}>
               Share Track
@@ -418,8 +436,11 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <AddToPlaylistDialog open={showAddToPlaylist} onOpenChange={setShowAddToPlaylist} />
     </div>
   );
 }
 
 export const NowPlayingBar = memo(NowPlayingBarComponent);
+
