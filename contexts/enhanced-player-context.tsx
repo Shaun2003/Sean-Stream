@@ -21,6 +21,7 @@ import { durationToSeconds, isValidYouTubeVideoId } from "@/lib/youtube";
 import { addToRecentlyPlayed } from "@/lib/offline-storage";
 import { supabase } from "@/lib/supabase/client";
 import { syncPlaybackHistory } from "@/lib/backend-sync";
+import { useMobileBackgroundPlayback } from "@/hooks/use-mobile-background-playback";
 
 declare global {
   interface Window {
@@ -105,6 +106,38 @@ export function EnhancedPlayerProvider({ children }: { children: ReactNode }) {
   const backgroundKeepAliveRef = useRef<NodeJS.Timeout | null>(null);
   const lastKnownPlayingStateRef = useRef<boolean>(false);
   const tabVisibilityChangeRef = useRef<number>(Date.now());
+
+  // Enable mobile background audio playback
+  const mobileBackgroundPlayback = useMobileBackgroundPlayback({
+    isPlaying,
+    currentSong,
+    currentYouTubeTime: currentTime,
+    onTimeUpdate: (time) => {
+      setCurrentTime(time);
+      currentTimeRef.current = time;
+    },
+    onEnded: () => {
+      // Handle track end for background audio
+      if (queue.length > 0 && queueIndex < queue.length - 1) {
+        const nextSong = queue[queueIndex + 1];
+        setQueueIndex(queueIndex + 1);
+        setCurrentSong(nextSong);
+        setCurrentTime(0);
+        setDuration(durationToSeconds(nextSong.duration));
+        setIsLoading(true);
+
+        if (playerRef.current) {
+          playerRef.current.loadVideoById(nextSong.id);
+          playerRef.current.playVideo();
+        }
+
+        addToRecentlyPlayed(nextSong);
+      }
+    },
+    onError: (error) => {
+      console.error("[EnhancedPlayer] Background audio error:", error);
+    },
+  });
 
   // Load YouTube IFrame API
   useEffect(() => {
@@ -351,12 +384,12 @@ export function EnhancedPlayerProvider({ children }: { children: ReactNode }) {
           origin: typeof window !== "undefined" ? window.location.origin : "",
         },
         events: {
-          onReady: (event) => {
+          onReady: (event: any) => {
             console.log("[EnhancedPlayer] YouTube player ready");
             playerReadyRef.current = true;
             event.target.setVolume(volume);
           },
-          onStateChange: (event) => {
+          onStateChange: (event: any) => {
             const playerState = event.data;
             console.log(`[EnhancedPlayer] Player state changed: ${playerState}`);
 
@@ -396,7 +429,7 @@ export function EnhancedPlayerProvider({ children }: { children: ReactNode }) {
             // Update Media Session
             updateMediaSession(playerState);
           },
-          onError: (event) => {
+          onError: (event: any) => {
             console.warn("[EnhancedPlayer] YouTube error:", event.data);
             setIsLoading(false);
             handleTrackEnd();
@@ -504,12 +537,17 @@ export function EnhancedPlayerProvider({ children }: { children: ReactNode }) {
           setCurrentTime(time);
           currentTimeRef.current = time;
           if (dur > 0) setDuration(dur);
+
+          // Sync with background audio playback if in background mode
+          if (document.hidden) {
+            mobileBackgroundPlayback.syncPlaybackTime(time);
+          }
         } catch (error) {
           // Ignore interval errors
         }
       }
     }, 250);
-  }, []);
+  }, [mobileBackgroundPlayback]);
 
   const stopTimeUpdate = useCallback(() => {
     if (timeUpdateInterval.current) {
@@ -681,7 +719,9 @@ export function EnhancedPlayerProvider({ children }: { children: ReactNode }) {
     if (playerRef.current) {
       playerRef.current.setVolume(vol);
     }
-  }, []);
+    // Sync volume with background audio
+    mobileBackgroundPlayback.setBackgroundVolume(vol);
+  }, [mobileBackgroundPlayback]);
 
   const addToQueue = useCallback((song: Song) => {
     setQueue((prev) => [...prev, song]);
