@@ -1,6 +1,6 @@
 "use client";
 
-import { usePlayer, type Song } from "@/contexts/player-context";
+import { useEnhancedPlayer, type Song } from "@/contexts/enhanced-player-context";
 import {
   Play,
   Pause,
@@ -53,7 +53,7 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
     seek,
     setVolume,
     shuffleQueue,
-  } = usePlayer();
+  } = useEnhancedPlayer();
 
   const { toast } = useToast();
 
@@ -155,10 +155,10 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 p-3">
+          <div className="flex items-center gap-2 p-3">
             {/* Album art */}
             <Link href="/player" className="block">
-              <div className="w-11 h-11 rounded-lg overflow-hidden bg-secondary shrink-0">
+              <div className="w-12 h-12 rounded-lg overflow-hidden bg-secondary shrink-0">
                 {currentSong.thumbnail ? (
                   <img
                     src={currentSong.thumbnail || "/placeholder.svg"}
@@ -186,11 +186,11 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
             </Link>
 
             {/* Controls */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="icon"
-                className="w-9 h-9"
+                className="w-8 h-8"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -199,7 +199,7 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
               >
                 <Heart
                   className={cn(
-                    "w-5 h-5",
+                    "w-4 h-4",
                     isLiked && "fill-primary text-primary"
                   )}
                 />
@@ -207,7 +207,7 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
               <Button
                 variant="ghost"
                 size="icon"
-                className="w-10 h-10"
+                className="w-8 h-8"
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -215,11 +215,11 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
                 }}
               >
                 {isLoading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : isPlaying ? (
-                  <Pause className="w-5 h-5" />
+                  <Pause className="w-4 h-4" />
                 ) : (
-                  <Play className="w-5 h-5 fill-current" />
+                  <Play className="w-4 h-4 fill-current" />
                 )}
               </Button>
             </div>
@@ -233,13 +233,13 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
   return (
     <div
       className={cn(
-        "h-20 bg-card border-t border-border px-4 flex items-center justify-between gap-4",
+        "h-20 bg-card border-t border-border px-6 flex items-center justify-between gap-6",
         className
       )}
     >
       {/* Left: Song info */}
       <div className="flex items-center gap-3 w-[30%] min-w-[180px]">
-        <div className="w-14 h-14 rounded-md overflow-hidden bg-secondary shrink-0">
+        <div className="w-14 h-14 rounded-md overflow-hidden bg-secondary flex-shrink-0">
           {currentSong.thumbnail ? (
             <img
               src={currentSong.thumbnail || "/placeholder.svg"}
@@ -265,7 +265,7 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="w-8 h-8 ml-2"
+          className="w-8 h-8 flex-shrink-0 ml-2"
           onClick={handleLike}
         >
           <Heart
@@ -278,8 +278,8 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
       </div>
 
       {/* Center: Controls */}
-      <div className="flex flex-col items-center gap-1 w-[40%] max-w-[600px]">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col items-center gap-2 w-[40%] max-w-[600px]">
+        <div className="flex items-center gap-3">
           <Button
             variant="ghost"
             size="icon"
@@ -302,15 +302,15 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
 
           <Button
             size="icon"
-            className="w-9 h-9 rounded-full bg-foreground text-background hover:bg-foreground/90 hover:scale-105 transition-transform"
+            className="w-10 h-10 rounded-full bg-foreground text-background hover:bg-foreground/90 hover:scale-105 transition-transform flex-shrink-0"
             onClick={togglePlayPause}
           >
             {isLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-5 h-5 animate-spin" />
             ) : isPlaying ? (
-              <Pause className="w-4 h-4" />
+              <Pause className="w-5 h-5" />
             ) : (
-              <Play className="w-4 h-4 fill-current ml-0.5" />
+              <Play className="w-5 h-5 fill-current ml-0.5" />
             )}
           </Button>
 
@@ -348,7 +348,7 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
 
         {/* Progress bar */}
         <div className="flex items-center gap-2 w-full">
-          <span className="text-xs text-muted-foreground w-10 text-right">
+          <span className="text-xs text-muted-foreground w-10 text-right flex-shrink-0">
             {formatTime(currentTime)}
           </span>
           <Slider
@@ -358,14 +358,14 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
             onValueChange={(value) => seek(value[0])}
             className="flex-1"
           />
-          <span className="text-xs text-muted-foreground w-10">
+          <span className="text-xs text-muted-foreground w-10 flex-shrink-0">
             {formatTime(duration)}
           </span>
         </div>
       </div>
 
       {/* Right: Volume and extras */}
-      <div className="flex items-center justify-end gap-2 w-[30%] min-w-[180px]">
+      <div className="flex items-center justify-end gap-1 w-[30%] min-w-[180px]">
         <Button
           variant="ghost"
           size="icon"
@@ -391,7 +391,7 @@ function NowPlayingBarComponent({ className, mobile }: NowPlayingBarProps) {
           <Button
             variant="ghost"
             size="icon"
-            className="w-8 h-8"
+            className="w-8 h-8 flex-shrink-0"
             onClick={toggleMute}
           >
             {volume === 0 ? (

@@ -1,18 +1,19 @@
-"use client";
+'use client';
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Search, Library, ListMusic } from "lucide-react";
+import { Home, Search, Library, Users, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", icon: Home, label: "Home" },
   { href: "/search", icon: Search, label: "Search" },
+  { href: "/artists", icon: Users, label: "Artists" },
   { href: "/library", icon: Library, label: "Library" },
-  { href: "/playlists", icon: ListMusic, label: "Playlists" },
+  { href: "/stats", icon: BarChart3, label: "Stats" },
 ];
 
-export function BottomNav() {
+export function BottomNavClient() {
   const pathname = usePathname();
 
   return (
@@ -42,4 +43,3 @@ export function BottomNav() {
     </nav>
   );
 }
-

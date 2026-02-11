@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Plus, Check } from 'lucide-react';
-import { toast } from '@/hooks/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { durationToSeconds } from '@/lib/youtube';
 import type { Song } from '@/contexts/enhanced-player-context';
 
@@ -19,15 +19,16 @@ interface Playlist {
   description?: string;
 }
 
-interface AddToPlaylistDialogProps {
+interface AddToPlaylistDialogClientProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   song?: Song; // Optional prop - if provided, use this song instead of currentSong
   onAddSuccess?: () => void; // Optional callback when a song is successfully added
 }
 
-export function AddToPlaylistDialog({ open, onOpenChange, song: propSong, onAddSuccess }: AddToPlaylistDialogProps) {
+export function AddToPlaylistDialogClient({ open, onOpenChange, song: propSong, onAddSuccess }: AddToPlaylistDialogClientProps) {
   const { currentSong: playerSong } = useEnhancedPlayer();
+  const { toast } = useToast();
   // Use provided song prop, fall back to currently playing song
   const currentSong = propSong || playerSong;
   const [playlists, setPlaylists] = useState<Playlist[]>([]);

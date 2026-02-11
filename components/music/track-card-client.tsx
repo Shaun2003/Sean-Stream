@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { Play, Pause, MoreVertical } from "lucide-react";
 import { useEnhancedPlayer, type Song } from "@/contexts/enhanced-player-context";
@@ -15,12 +15,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Plus } from "lucide-react";
 
-interface TrackCardProps {
+interface TrackCardClientProps {
   track: YouTubeVideo;
   showArtist?: boolean;
 }
 
-export function TrackCard({ track, showArtist = true }: TrackCardProps) {
+export function TrackCardClient({ track, showArtist = true }: TrackCardClientProps) {
   const { playSong, currentSong, isPlaying, togglePlayPause } = useEnhancedPlayer();
   const [showAddToPlaylist, setShowAddToPlaylist] = useState(false);
 
@@ -140,4 +140,3 @@ export function TrackCard({ track, showArtist = true }: TrackCardProps) {
     </div>
   );
 }
-

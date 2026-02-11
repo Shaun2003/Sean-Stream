@@ -1,6 +1,6 @@
 "use client";
 
-import { usePlayer } from "@/contexts/player-context";
+import { useEnhancedPlayer } from "@/contexts/enhanced-player-context";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useCallback } from "react";
 
@@ -17,7 +17,7 @@ import { useCallback } from "react";
  * - Ctrl+L: Like current track
  */
 export function KeyboardShortcutsManager() {
-  const { togglePlayPause, nextTrack, previousTrack, volume, setVolume } = usePlayer();
+  const { togglePlayPause, nextTrack, previousTrack, volume, setVolume } = useEnhancedPlayer();
 
   const handleVolumeUp = useCallback(() => {
     const newVolume = Math.min(100, volume + 5);

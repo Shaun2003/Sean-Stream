@@ -1,7 +1,7 @@
 "use client";
 
 import { Play, Pause, MoreHorizontal, Heart, ListPlus, Download, Trash2, CheckCircle, Plus } from "lucide-react";
-import { usePlayer, type Song } from "@/contexts/player-context";
+import { useEnhancedPlayer, type Song } from "@/contexts/enhanced-player-context";
 import type { YouTubeVideo } from "@/lib/youtube";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,7 +40,7 @@ function TrackRowComponent({
   onAddToPlaylistSuccess
 }: TrackRowProps) {
   const { playSong, addToQueue, currentSong, isPlaying, togglePlayPause } =
-    usePlayer();
+    useEnhancedPlayer();
   const [isLiked, setIsLiked] = useState(false);
   const [isDownloadedState, setIsDownloadedState] = useState(false);
   const [isHovered, setIsHovered] = useState(false);

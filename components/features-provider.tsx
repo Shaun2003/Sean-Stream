@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { usePlayer } from "@/contexts/player-context";
+import { useEnhancedPlayer } from "@/contexts/enhanced-player-context";
 import { recordTrackPlay } from "@/lib/stats";
 
 /**
@@ -12,7 +12,7 @@ import { recordTrackPlay } from "@/lib/stats";
  * - Social features initialization (Phase 3)
  */
 export function FeaturesProvider({ children }: { children: React.ReactNode }) {
-  const { currentSong, isPlaying } = usePlayer();
+  const { currentSong, isPlaying } = useEnhancedPlayer();
   const recordedTracksRef = new Map<string, boolean>();
 
   // Record track plays for statistics

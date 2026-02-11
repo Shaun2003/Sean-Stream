@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { getMoodPlaylists, type MoodPlaylist } from "@/lib/mood-playlists";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { usePlayer, type Song } from "@/contexts/player-context";
+import { useEnhancedPlayer, type Song } from "@/contexts/enhanced-player-context";
 import { Play } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function MoodPlaylistsWidget() {
   const [moods, setMoods] = useState<MoodPlaylist[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { playQueue } = usePlayer();
+  const { playQueue } = useEnhancedPlayer();
 
   useEffect(() => {
     try {
