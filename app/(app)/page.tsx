@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { getTrendingMusic, type YouTubeVideo } from "@/lib/youtube";
 import { getRecentlyPlayed, getLikedTracks } from "@/lib/offline-storage";
-import { usePlayer, type Song } from "@/contexts/player-context";
+import { useEnhancedPlayer, type Song } from "@/contexts/enhanced-player-context";
 import { TrackCard } from "@/components/music/track-card";
 import { TrackRow } from "@/components/music/track-row";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,7 +15,7 @@ export default function HomePage() {
   const [recentlyPlayed, setRecentlyPlayed] = useState<YouTubeVideo[]>([]);
   const [likedTracks, setLikedTracks] = useState<YouTubeVideo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { playQueue, currentSong, isPlaying } = usePlayer();
+  const { playQueue, currentSong, isPlaying } = useEnhancedPlayer();
 
   useEffect(() => {
     async function loadData() {
@@ -179,7 +179,7 @@ function QuickPickCard({
   track: YouTubeVideo;
   isPlaying: boolean;
 }) {
-  const { playSong } = usePlayer();
+  const { playSong } = useEnhancedPlayer();
 
   return (
     <button

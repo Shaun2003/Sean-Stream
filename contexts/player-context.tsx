@@ -519,7 +519,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             event.target.setVolume(volume);
           },
           onStateChange: (event) => {
-            if (event.data === window.YT.PlayerState.PLAYING) {
+            console.log(`[v0] Player state: ${event.data}`);
+            
+            // Auto-play when video is cued (state 5)
+            if (event.data === 5) {
+              console.log("[v0] Video CUED - auto-playing");
+              try {
+                if (playerRef.current && typeof playerRef.current.playVideo === "function") {
+                  playerRef.current.playVideo();
+                  console.log("[v0] Auto-play triggered");
+                }
+              } catch (e) {
+                console.error("[v0] Auto-play failed:", e);
+              }
+            } else if (event.data === window.YT.PlayerState.PLAYING) {
+              console.log("[v0] Now PLAYING");
               setIsPlaying(true);
               setIsLoading(false);
               startTimeUpdate();
@@ -528,6 +542,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 navigator.mediaSession.playbackState = "playing";
               }
             } else if (event.data === window.YT.PlayerState.PAUSED) {
+              console.log("[v0] Now PAUSED");
               setIsPlaying(false);
               stopTimeUpdate();
               // Update Media Session
@@ -535,6 +550,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 navigator.mediaSession.playbackState = "paused";
               }
             } else if (event.data === window.YT.PlayerState.ENDED) {
+              console.log("[v0] Video ENDED");
               setIsPlaying(false);
               stopTimeUpdate();
               // Update Media Session
@@ -543,6 +559,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               }
               handleTrackEnd();
             } else if (event.data === window.YT.PlayerState.BUFFERING) {
+              console.log("[v0] BUFFERING");
               setIsLoading(true);
             }
           },
@@ -926,26 +943,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         // Silently ignore save errors
       }
 
-      if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-        try {
-          playerRef.current.loadVideoById(song.id.trim());
-        } catch (error) {
-          console.error("[v0] Failed to load video:", error, "Video ID:", song.id);
-          setIsLoading(false);
-        }
-      } else {
-        console.warn("[v0] Player not ready yet or loadVideoById not available");
-        // Retry after a delay
-        setTimeout(() => {
-          if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-            try {
-              playerRef.current.loadVideoById(song.id.trim());
-            } catch (error) {
-              console.error("[v0] Retry failed to load video:", error);
-            }
+      // Schedule video load in next tick to ensure player is ready
+      setTimeout(() => {
+        if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
+          try {
+            console.log(`[v0] Loading: ${song.id}`);
+            playerRef.current.loadVideoById(song.id.trim());
+            console.log("[v0] Video queued, waiting for CUED state to auto-play");
+          } catch (error) {
+            console.error("[v0] Failed to load video:", error, "Video ID:", song.id);
+            setIsLoading(false);
           }
-        }, 500);
-      }
+        } else {
+          console.warn("[v0] Player not ready yet");
+        }
+      }, 0);
 
       addToRecentlyPlayed(song);
     },
@@ -972,26 +984,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setDuration(durationToSeconds(song.duration));
       setIsLoading(true);
 
-      if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-        try {
-          playerRef.current.loadVideoById(song.id.trim());
-        } catch (error) {
-          console.error("[v0] Failed to load video from queue:", error);
-          setIsLoading(false);
-        }
-      } else {
-        console.warn("[v0] Player not ready yet or loadVideoById not available");
-        // Retry after a delay
-        setTimeout(() => {
-          if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
-            try {
-              playerRef.current.loadVideoById(song.id.trim());
-            } catch (error) {
-              console.error("[v0] Retry failed to load video from queue:", error);
-            }
+      // Schedule video load in next tick to ensure player is ready
+      setTimeout(() => {
+        if (playerRef.current && typeof playerRef.current.loadVideoById === 'function') {
+          try {
+            console.log(`[v0] Loading from queue: ${song.id}`);
+            playerRef.current.loadVideoById(song.id.trim());
+            console.log("[v0] Video queued, waiting for CUED state to auto-play");
+          } catch (error) {
+            console.error("[v0] Failed to load video from queue:", error);
+            setIsLoading(false);
           }
-        }, 500);
-      }
+        } else {
+          console.warn("[v0] Player not ready yet");
+        }
+      }, 0);
 
       addToRecentlyPlayed(song);
     },

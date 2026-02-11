@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
-import { ProfileContent } from "@/components/music/profile-content";
+import { ProfileTabs } from "@/components/music/profile-tabs";
 
 export default async function ProfilePage() {
   const supabase = await createClient();
@@ -30,7 +30,7 @@ export default async function ProfilePage() {
     .eq("user_id", user.id);
 
   return (
-    <ProfileContent
+    <ProfileTabs
       profile={{
         id: user.id,
         email: user.email || "",

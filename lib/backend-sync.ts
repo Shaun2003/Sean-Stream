@@ -15,7 +15,7 @@ import {
   syncOfflineQueue,
   hasUnsyncedItems,
 } from '@/lib/offline-sync-queue';
-import type { Song } from '@/contexts/player-context';
+import type { Song } from '@/contexts/enhanced-player-context';
 
 interface SyncOptions {
   offline?: boolean;

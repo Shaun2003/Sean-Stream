@@ -13,7 +13,7 @@ import {
 } from "@/lib/youtube";
 import { TrackCard } from "@/components/music/track-card";
 import { TrackRow } from "@/components/music/track-row";
-import { usePlayer, type Song } from "@/contexts/player-context";
+import { useEnhancedPlayer, type Song } from "@/contexts/enhanced-player-context";
 import { useToast } from "@/hooks/use-toast";
 import { downloadTrack, getDownloadedTracks, type StoredDownload } from "@/lib/offline-download";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,7 +48,7 @@ export default function SearchPage() {
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
   const debouncedQuery = useDebounce(query, 500);
-  const { playQueue } = usePlayer();
+  const { playQueue } = useEnhancedPlayer();
   const { toast } = useToast();
 
   // Load trending and search history on mount
@@ -432,7 +432,7 @@ export default function SearchPage() {
 }
 
 function TopResultCard({ track }: { track: YouTubeVideo }) {
-  const { playSong, currentSong, isPlaying, togglePlayPause } = usePlayer();
+  const { playSong, currentSong, isPlaying, togglePlayPause } = useEnhancedPlayer();
 
   const isCurrentTrack = currentSong?.id === track.id;
   const isCurrentlyPlaying = isCurrentTrack && isPlaying;
@@ -509,7 +509,7 @@ function TopResultCard({ track }: { track: YouTubeVideo }) {
 
 function PlaylistCard({ playlist }: { playlist: PlaylistItem }) {
   const router = useRouter();
-  const { playQueue } = usePlayer();
+  const { playQueue } = useEnhancedPlayer();
 
   const handlePlayPlaylist = async (e: React.MouseEvent) => {
     e.stopPropagation();

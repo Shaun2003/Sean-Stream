@@ -6,7 +6,7 @@ import { ArrowLeft, Play, Pause, Download, Share2, Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getPlaylistItems, type YouTubeVideo } from "@/lib/youtube";
-import { usePlayer, type Song } from "@/contexts/player-context";
+import { useEnhancedPlayer, type Song } from "@/contexts/enhanced-player-context";
 import { TrackRow } from "@/components/music/track-row";
 import { downloadTrack, isTrackDownloaded } from "@/lib/offline-download";
 import { useToast } from "@/hooks/use-toast";
@@ -26,7 +26,7 @@ export default function AlbumPage() {
   const params = useParams();
   const playlistId = params.id as string;
   const { toast } = useToast();
-  const { playQueue, currentSong, isPlaying, togglePlayPause } = usePlayer();
+  const { playQueue, currentSong, isPlaying, togglePlayPause } = useEnhancedPlayer();
 
   const [albumData, setAlbumData] = useState<PlaylistData | null>(null);
   const [tracks, setTracks] = useState<YouTubeVideo[]>([]);

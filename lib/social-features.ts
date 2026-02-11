@@ -20,11 +20,10 @@ export interface UserProfile {
 
 export interface ActivityItem {
   id: string;
-  userId: string;
-  userName: string;
-  activityType: "liked_track" | "created_playlist" | "followed_user" | "added_to_playlist";
-  activityData: Record<string, unknown>;
-  createdAt: string;
+  user_id: string;
+  activity_type: "liked_track" | "created_playlist" | "followed_user" | "added_to_playlist";
+  metadata?: Record<string, unknown>;
+  created_at: string;
 }
 
 export interface FollowUser {
@@ -109,7 +108,7 @@ export async function followUser(followingId: string): Promise<boolean> {
     await supabase.from("activity_feed").insert({
       user_id: followingId,
       activity_type: "followed_user",
-      activity_data: {
+      metadata: {
         follower_id: currentUser?.id,
         follower_name: currentUser?.email,
       },
@@ -177,19 +176,13 @@ export async function getActivityFeed(userId?: string): Promise<ActivityItem[]> 
     if (error) throw error;
 
     return (
-      data?.map((item: unknown) => {
-        const record = item as Record<string, unknown>;
-        return {
-          id: record.id as string,
-          userId: record.user_id as string,
-          userName: record.activity_data && typeof record.activity_data === 'object' 
-            ? (record.activity_data as Record<string, unknown>).user_name as string
-            : "Unknown User",
-          activityType: record.activity_type as ActivityItem["activityType"],
-          activityData: record.activity_data as Record<string, unknown>,
-          createdAt: record.created_at as string,
-        };
-      }) || []
+      data?.map((item: Record<string, unknown>) => ({
+        id: item.id as string,
+        user_id: item.user_id as string,
+        activity_type: item.activity_type as ActivityItem["activity_type"],
+        metadata: item.metadata as Record<string, unknown> | undefined,
+        created_at: item.created_at as string,
+      })) || []
     );
   } catch (error) {
     console.error("[Social] Error getting activity feed:", error);
@@ -198,8 +191,8 @@ export async function getActivityFeed(userId?: string): Promise<ActivityItem[]> 
 }
 
 export async function createActivity(
-  activityType: ActivityItem["activityType"],
-  activityData: Record<string, unknown>
+  activityType: ActivityItem["activity_type"],
+  metadata: Record<string, unknown>
 ): Promise<boolean> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -208,7 +201,7 @@ export async function createActivity(
     const { error } = await supabase.from("activity_feed").insert({
       user_id: user.id,
       activity_type: activityType,
-      activity_data: activityData,
+      metadata: metadata,
     });
 
     if (error) throw error;
@@ -252,5 +245,155 @@ export async function getFollowRecommendations(): Promise<FollowUser[]> {
   } catch (error) {
     console.error("[Social] Error getting recommendations:", error);
     return [];
+  }
+}
+
+// Get followers
+export async function getFollowers(): Promise<FollowUser[]> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    // Get all users following current user
+    const { data: followers, error: followersError } = await supabase
+      .from("followers")
+      .select("follower_id")
+      .eq("following_id", user.id);
+
+    if (followersError) throw followersError;
+
+    const followerIds = followers?.map((f: Record<string, unknown>) => f.follower_id) || [];
+
+    if (followerIds.length === 0) return [];
+
+    // Get follower profiles
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id, display_name, avatar_url")
+      .in("id", followerIds);
+
+    if (profilesError) throw profilesError;
+
+    return (profiles || []).map((profile: Record<string, unknown>) => ({
+      id: profile.id as string,
+      displayName: profile.display_name as string || "User",
+      avatarUrl: profile.avatar_url as string | undefined,
+      isFollowing: true,
+    }));
+  } catch (error) {
+    console.error("[Social] Error getting followers:", error);
+    return [];
+  }
+}
+
+// Get following list
+export async function getFollowing(): Promise<FollowUser[]> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    // Get all users current user is following
+    const { data: following, error: followingError } = await supabase
+      .from("followers")
+      .select("following_id")
+      .eq("follower_id", user.id);
+
+    if (followingError) throw followingError;
+
+    const followingIds = following?.map((f: Record<string, unknown>) => f.following_id) || [];
+
+    if (followingIds.length === 0) return [];
+
+    // Get following profiles
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id, display_name, avatar_url")
+      .in("id", followingIds);
+
+    if (profilesError) throw profilesError;
+
+    return (profiles || []).map((profile: Record<string, unknown>) => ({
+      id: profile.id as string,
+      displayName: profile.display_name as string || "User",
+      avatarUrl: profile.avatar_url as string | undefined,
+      isFollowing: true,
+    }));
+  } catch (error) {
+    console.error("[Social] Error getting following list:", error);
+    return [];
+  }
+}
+
+// Search for users
+export async function searchUsers(query: string): Promise<FollowUser[]> {
+  try {
+    if (!query.trim()) return [];
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    // Get current user's following list
+    const { data: following } = await supabase
+      .from("followers")
+      .select("following_id")
+      .eq("follower_id", user.id);
+
+    const followingIds = following?.map((f: Record<string, unknown>) => f.following_id) || [];
+
+    // Search in profiles table
+    const { data: profiles, error } = await supabase
+      .from("profiles")
+      .select("id, display_name, avatar_url")
+      .neq("id", user.id)
+      .ilike("display_name", `%${query}%`)
+      .limit(20);
+
+    if (error) throw error;
+
+    return (profiles || []).map((profile: Record<string, unknown>) => ({
+      id: profile.id as string,
+      displayName: profile.display_name as string || "User",
+      avatarUrl: profile.avatar_url as string | undefined,
+      isFollowing: followingIds.includes(profile.id as string),
+    }));
+  } catch (error) {
+    console.error("[Social] Error searching users:", error);
+    return [];
+  }
+}
+
+// Theme Preference Functions
+export async function saveThemePreference(theme: "light" | "dark"): Promise<void> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase
+      .from("profiles")
+      .update({ theme_preference: theme })
+      .eq("id", user.id);
+
+    if (error) throw error;
+  } catch (error) {
+    console.error("[Theme] Error saving theme preference:", error);
+  }
+}
+
+export async function getThemePreference(): Promise<"light" | "dark" | null> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("theme_preference")
+      .eq("id", user.id)
+      .single();
+
+    if (error) throw error;
+    return data?.theme_preference || null;
+  } catch (error) {
+    console.error("[Theme] Error loading theme preference:", error);
+    return null;
   }
 }

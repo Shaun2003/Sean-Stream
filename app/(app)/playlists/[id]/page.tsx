@@ -10,7 +10,7 @@ import { TrackRow } from '@/components/music/track-row';
 import { AddToPlaylistDialog } from '@/components/music/add-to-playlist-dialog';
 import { ImportSongsDialog } from '@/components/music/import-songs-dialog';
 import { toast } from '@/hooks/use-toast';
-import { usePlayer, type Song } from '@/contexts/player-context';
+import { useEnhancedPlayer, type Song } from '@/contexts/enhanced-player-context';
 
 interface Playlist {
   id: string;
@@ -32,7 +32,7 @@ interface PlaylistTrack {
 export default function PlaylistDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { playQueue } = usePlayer();
+  const { playQueue } = useEnhancedPlayer();
   const playlistId = params.id as string;
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null);

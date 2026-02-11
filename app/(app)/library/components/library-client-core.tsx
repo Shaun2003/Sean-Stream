@@ -1,9 +1,8 @@
-"use client";
+'use client';
 
 import React from "react"
 import { Suspense } from "react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { getLikedTracks, getRecentlyPlayed } from "@/lib/offline-storage";
 import { getDownloadedTracks, type StoredDownload, downloadTrack } from "@/lib/offline-download";
 import type { YouTubeVideo } from "@/lib/youtube";
@@ -14,14 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Heart, Clock, Download, Play, Shuffle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import Loading from "./loading";
+import Loading from "../loading";
 import { supabase } from "@/lib/supabase/client";
 import { syncBookmarkTrack, syncUnbookmarkTrack } from "@/lib/backend-sync";
 
-export default function LibraryPage() {
-  const searchParams = useSearchParams();
-  const initialTab = searchParams.get("tab") || "liked";
-  const [activeTab, setActiveTab] = useState(initialTab);
+export default function LibraryClientCore() {
+  const [activeTab, setActiveTab] = useState("liked");
   const [likedTracks, setLikedTracks] = useState<YouTubeVideo[]>([]);
   const [recentTracks, setRecentTracks] = useState<YouTubeVideo[]>([]);
   const [downloadedTracks, setDownloadedTracks] = useState<StoredDownload[]>([]);
@@ -30,31 +27,37 @@ export default function LibraryPage() {
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
   const { playQueue, shuffleQueue } = useEnhancedPlayer();
   const { toast } = useToast();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    async function loadLibrary() {
-      setIsLoading(true);
-      try {
-        const [liked, recent, downloaded] = await Promise.all([
-          getLikedTracks(),
-          getRecentlyPlayed(),
-          getDownloadedTracks(),
-        ]);
-        setLikedTracks(liked);
-        setRecentTracks(recent);
-        setDownloadedTracks(downloaded);
-
-        // Initialize downloaded IDs set
-        const downloadedIdSet = new Set(downloaded.map((d) => d.id));
-        setDownloadedIds(downloadedIdSet);
-      } catch (error) {
-        console.error("[v0] Error loading library:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    loadLibrary();
+    setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (mounted) {
+      async function loadLibrary() {
+        setIsLoading(true);
+        try {
+          const [liked, recent, downloaded] = await Promise.all([
+            getLikedTracks(),
+            getRecentlyPlayed(),
+            getDownloadedTracks(),
+          ]);
+          setLikedTracks(liked);
+          setRecentTracks(recent);
+          setDownloadedTracks(downloaded);
+
+          const downloadedIdSet = new Set(downloaded.map((d) => d.id));
+          setDownloadedIds(downloadedIdSet);
+        } catch (error) {
+          console.error("[v0] Error loading library:", error);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+      loadLibrary();
+    }
+  }, [mounted]);
 
   const handlePlayAll = (tracks: YouTubeVideo[]) => {
     if (tracks.length > 0) {
@@ -101,13 +104,13 @@ export default function LibraryPage() {
 
       toast({
         title: "Success",
-        description: `"${track.title}" downloaded successfully!`,
+        description: `\"${track.title}\" downloaded successfully!`,
       });
     } catch (error) {
       console.error("[v0] Download error:", error);
       toast({
         title: "Download Failed",
-        description: `Failed to download "${track.title}". Try again later.`,
+        description: `Failed to download \"${track.title}\". Try again later.`,
         variant: "destructive",
       });
     } finally {
@@ -118,6 +121,10 @@ export default function LibraryPage() {
       });
     }
   };
+  
+  if (isLoading || !mounted) {
+    return <Loading />;
+  }
 
   return (
     <Suspense fallback={<Loading />}>
@@ -281,7 +288,6 @@ export default function LibraryPage() {
           <TabsContent value="downloads" className="mt-6">
             {downloadedTracks.length > 0 ? (
               <div className="space-y-4">
-                {/* Header with gradient */}
                 <div className="flex items-end gap-6 p-6 rounded-lg bg-linear-to-br from-green-700/50 to-emerald-600/30">
                   <div className="w-32 h-32 md:w-48 md:h-48 rounded-lg bg-linear-to-br from-green-600 to-emerald-400 flex items-center justify-center shadow-xl">
                     <Download className="w-16 h-16 md:w-20 md:h-20 text-foreground fill-current" />
@@ -304,7 +310,7 @@ export default function LibraryPage() {
                   <Button
                     className="gap-2"
                     size="lg"
-                    onClick={() => handlePlayAll(downloadedTracks)}
+                    onClick={() => handlePlayAll(downloadedTracks as YouTubeVideo[])}
                   >
                     <Play className="w-5 h-5" />
                     Play All
@@ -313,7 +319,7 @@ export default function LibraryPage() {
                     variant="outline"
                     className="w-10 h-10"
                     size="icon"
-                    onClick={() => handleShufflePlay(downloadedTracks)}
+                    onClick={() => handleShufflePlay(downloadedTracks as YouTubeVideo[])}
                   >
                     <Shuffle className="w-6 h-6" />
                   </Button>
@@ -365,4 +371,3 @@ function EmptyState({
     </div>
   );
 }
-

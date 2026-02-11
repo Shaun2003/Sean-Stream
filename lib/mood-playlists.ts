@@ -14,9 +14,11 @@ export interface MoodPlaylist {
   tracks: YouTubeVideo[];
   createdAt: number;
   color: string;
+  image?: string;
+  tagline?: string;
 }
 
-const MOOD_CONFIGS: Record<MoodType, { name: string; description: string; emoji: string; queries: string[]; color: string }> = {
+const MOOD_CONFIGS: Record<MoodType, { name: string; description: string; emoji: string; queries: string[]; color: string; image: string; tagline: string }> = {
   chill: {
     name: "Chill",
     description: "Relaxing vibes for unwinding",
@@ -29,6 +31,8 @@ const MOOD_CONFIGS: Record<MoodType, { name: string; description: string; emoji:
       "laid back vibes",
     ],
     color: "#4D96FF",
+    image: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    tagline: "Unwind with smooth, relaxing beats"
   },
   workout: {
     name: "Workout",
@@ -42,6 +46,8 @@ const MOOD_CONFIGS: Record<MoodType, { name: string; description: string; emoji:
       "cardio pump music",
     ],
     color: "#FF6B6B",
+    image: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+    tagline: "Push your limits with high-energy tracks"
   },
   focus: {
     name: "Focus",
@@ -55,6 +61,8 @@ const MOOD_CONFIGS: Record<MoodType, { name: string; description: string; emoji:
       "focus flow music",
     ],
     color: "#6BCB77",
+    image: "linear-gradient(135deg, #30cfd0 0%, #330867 100%)",
+    tagline: "Deep concentration for maximum productivity"
   },
   party: {
     name: "Party",
@@ -68,6 +76,8 @@ const MOOD_CONFIGS: Record<MoodType, { name: string; description: string; emoji:
       "festival bangers",
     ],
     color: "#FFD93D",
+    image: "linear-gradient(135deg, #ff9b56 0%, #ff6a88 100%)",
+    tagline: "Get the party started with dance hits"
   },
   romantic: {
     name: "Romantic",
@@ -78,35 +88,41 @@ const MOOD_CONFIGS: Record<MoodType, { name: string; description: string; emoji:
       "slow love ballads",
       "romantic dinner music",
       "soulful love songs",
-      "intimate music",
+      "love duets",
     ],
-    color: "#FF69B4",
+    color: "#FF1493",
+    image: "linear-gradient(135deg, #ff6b9d 0%, #c44569 100%)",
+    tagline: "Feel the love with romantic melodies"
   },
   sad: {
     name: "Sad",
-    description: "Emotional and melancholic",
+    description: "Emotional and introspective",
     emoji: "😢",
     queries: [
       "sad emotional songs",
-      "breakup songs",
-      "melancholic music",
-      "emotional ballads",
+      "breakup music",
+      "melancholic ballads",
+      "introspective lyrics",
       "heartbreak songs",
     ],
-    color: "#A569BD",
+    color: "#4B5582",
+    image: "linear-gradient(135deg, #2c3e50 0%, #34495e 100%)",
+    tagline: "Express your emotions with soulful songs"
   },
   happy: {
     name: "Happy",
-    description: "Uplifting and positive vibes",
+    description: "Feel-good and uplifting",
     emoji: "😊",
     queries: [
-      "happy feel good music",
-      "uplifting positive songs",
-      "feel good pop hits",
-      "cheerful music",
-      "good mood songs",
+      "happy feel good songs",
+      "uplifting positive music",
+      "feel good hits",
+      "infectious happiness vibes",
+      "celebration songs",
     ],
-    color: "#FF8E72",
+    color: "#FFD700",
+    image: "linear-gradient(135deg, #ffd89b 0%, #19547b 100%)",
+    tagline: "Boost your mood with feel-good vibes"
   },
 };
 
