@@ -7,6 +7,8 @@ import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { PlayerProvider } from '@/contexts/PlayerContext';
 import { ToastProvider } from '@/components/ui/Toast';
+import { YouTubePlayerEngine } from '@/components/music/YouTubePlayer';
+import { GamificationProvider } from '@/contexts/GamificationContext';
 
 function RootNavigator() {
   const { colors, isDark } = useTheme();
@@ -38,6 +40,7 @@ function RootNavigator() {
         <Stack.Screen name="moods" options={{ headerShown: false }} />
         <Stack.Screen name="activity" options={{ headerShown: false }} />
         <Stack.Screen name="following" options={{ headerShown: false }} />
+        <Stack.Screen name="playlist/[id]" options={{ headerShown: false }} />
       </Stack>
     </>
   );
@@ -50,9 +53,12 @@ export default function RootLayout() {
         <ThemeProvider>
           <AuthProvider>
             <PlayerProvider>
-              <ToastProvider>
-                <RootNavigator />
-              </ToastProvider>
+              <GamificationProvider>
+                <ToastProvider>
+                  <RootNavigator />
+                  <YouTubePlayerEngine />
+                </ToastProvider>
+              </GamificationProvider>
             </PlayerProvider>
           </AuthProvider>
         </ThemeProvider>

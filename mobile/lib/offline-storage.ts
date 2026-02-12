@@ -216,6 +216,116 @@ export async function deletePlaylist(playlistId: string): Promise<void> {
   await db.runAsync('DELETE FROM playlists WHERE id = ?', [playlistId]);
 }
 
+// --- Toggle Like ---
+
+export async function toggleLikeTrack(track: Track): Promise<boolean> {
+  const liked = await isTrackLiked(track.id);
+  if (liked) {
+    await unlikeTrack(track.id);
+    return false;
+  } else {
+    await likeTrack(track);
+    return true;
+  }
+}
+
+// --- Listening Stats ---
+
+export async function getListeningStats(): Promise<{
+  totalListeningTime: number;
+  totalTracks: number;
+  totalArtists: number;
+}> {
+  const db = await getDatabase();
+  const stats = await db.getFirstAsync<any>('SELECT * FROM user_stats WHERE id = 1');
+  const artistCount = await db.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(DISTINCT artist) as count FROM playback_history'
+  );
+  return {
+    totalListeningTime: stats?.total_listen_time ?? 0,
+    totalTracks: stats?.total_plays ?? 0,
+    totalArtists: artistCount?.count ?? 0,
+  };
+}
+
+export async function getTopTracks(limit = 10): Promise<{ title: string; artist: string; playCount: number }[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{ title: string; artist: string; play_count: number }>(
+    `SELECT title, artist, COUNT(*) as play_count 
+     FROM playback_history 
+     GROUP BY track_id 
+     ORDER BY play_count DESC 
+     LIMIT ?`,
+    [limit]
+  );
+  return rows.map((r) => ({ title: r.title, artist: r.artist, playCount: r.play_count }));
+}
+
+export async function getTopArtists(limit = 5): Promise<{ name: string; playCount: number }[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<{ artist: string; play_count: number }>(
+    `SELECT artist, COUNT(*) as play_count 
+     FROM playback_history 
+     GROUP BY artist 
+     ORDER BY play_count DESC 
+     LIMIT ?`,
+    [limit]
+  );
+  return rows.map((r) => ({ name: r.artist, playCount: r.play_count }));
+}
+
+// --- Gamification ---
+
+export async function getGamificationData(): Promise<{
+  xp: number;
+  level: number;
+  streak: number;
+  achievements: string[];
+}> {
+  const stats = await getUserStats();
+  // Simple streak calculation based on consecutive days with plays
+  const db = await getDatabase();
+  const recentDays = await db.getAllAsync<{ play_date: string }>(
+    `SELECT DISTINCT DATE(played_at) as play_date FROM playback_history ORDER BY play_date DESC LIMIT 30`
+  );
+
+  let streak = 0;
+  const today = new Date().toISOString().split('T')[0];
+  const dates = recentDays.map((r) => r.play_date);
+  
+  for (let i = 0; i < dates.length; i++) {
+    const expected = new Date();
+    expected.setDate(expected.getDate() - i);
+    const expectedDate = expected.toISOString().split('T')[0];
+    if (dates.includes(expectedDate)) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  // Check achievements
+  const achievements: string[] = [];
+  if (stats.totalPlays >= 1) achievements.push('first-play');
+  if (stats.totalPlays >= 10) achievements.push('tracks-10');
+  if (stats.totalPlays >= 50) achievements.push('tracks-50');
+  if (stats.totalPlays >= 100) achievements.push('tracks-100');
+  if (stats.totalListenTime >= 3600) achievements.push('minutes-60');
+  if (streak >= 3) achievements.push('streak-3');
+  if (streak >= 7) achievements.push('streak-7');
+
+  const likedCount = await getLikedTrackCount();
+  if (likedCount >= 5) achievements.push('likes-5');
+  if (likedCount >= 25) achievements.push('likes-25');
+
+  return {
+    xp: stats.xp,
+    level: stats.level,
+    streak,
+    achievements,
+  };
+}
+
 // --- Helpers ---
 
 function rowToTrack(row: any): Track {
